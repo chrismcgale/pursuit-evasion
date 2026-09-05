@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<!-- Gate for the evader team. RL takes over when a pursuer is close or closing
+     fast; scripted potential-field flee otherwise. -->
+<root BTCPP_format="4" main_tree_to_execute="GateEvaders">
+  <BehaviorTree ID="GateEvaders">
+    <Fallback name="gate">
+      <Sequence name="threat_close_to_rl">
+        <ThreatClose/>
+        <SetMode mode="rl"/>
+      </Sequence>
+      <Sequence name="closing_fast_to_rl">
+        <ThreatClosingFast/>
+        <SetMode mode="rl"/>
+      </Sequence>
+      <SetMode mode="scripted"/>
+    </Fallback>
+  </BehaviorTree>
+</root>

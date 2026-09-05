@@ -1,0 +1,93 @@
+<mujoco model="pursuit_evasion">
+  <compiler angle="radian"/>
+  <option timestep="0.02" integrator="RK4" gravity="0 0 0"/>
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3"/>
+  </visual>
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.2 0.3 0.4" rgb2="0.1 0.15 0.2"
+             width="512" height="512"/>
+    <material name="grid" texture="grid" texrepeat="8 8" reflectance="0.1"/>
+  </asset>
+  <worldbody>
+    <geom name="floor" type="plane" size="40.0 40.0 0.1" material="grid" pos="0 0 0"/>
+    <light pos="0 0 20.0" dir="0 0 -1" directional="true"/>
+    
+    <body name="pursuer0_x" pos="0 0 0">
+      <joint name="pursuer0_x" type="slide" axis="1 0 0" range="-40.0 40.0" damping="4.0" ref="0.0"/>
+      <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-5 1e-5 1e-5"/>
+      <body name="pursuer0_y" pos="0 0 0">
+        <joint name="pursuer0_y" type="slide" axis="0 1 0" range="-40.0 40.0" damping="4.0" ref="0.0"/>
+        <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-5 1e-5 1e-5"/>
+        <body name="pursuer0_z" pos="0 0 0">
+          <joint name="pursuer0_z" type="slide" axis="0 0 1" range="0.5 20.0" damping="4.0" ref="0.0"/>
+          <geom name="pursuer0" type="sphere" size="0.5" mass="1.0"
+                rgba="0.85 0.25 0.20 1" contype="0" conaffinity="0"/>
+          <site name="pursuer0_site" pos="0 0 0" size="0.05"/>
+        </body>
+      </body>
+    </body>
+    <body name="pursuer1_x" pos="0 0 0">
+      <joint name="pursuer1_x" type="slide" axis="1 0 0" range="-40.0 40.0" damping="4.0" ref="0.0"/>
+      <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-5 1e-5 1e-5"/>
+      <body name="pursuer1_y" pos="0 0 0">
+        <joint name="pursuer1_y" type="slide" axis="0 1 0" range="-40.0 40.0" damping="4.0" ref="0.0"/>
+        <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-5 1e-5 1e-5"/>
+        <body name="pursuer1_z" pos="0 0 0">
+          <joint name="pursuer1_z" type="slide" axis="0 0 1" range="0.5 20.0" damping="4.0" ref="0.0"/>
+          <geom name="pursuer1" type="sphere" size="0.5" mass="1.0"
+                rgba="0.85 0.25 0.20 1" contype="0" conaffinity="0"/>
+          <site name="pursuer1_site" pos="0 0 0" size="0.05"/>
+        </body>
+      </body>
+    </body>
+    <body name="evader0_x" pos="0 0 0">
+      <joint name="evader0_x" type="slide" axis="1 0 0" range="-40.0 40.0" damping="4.0" ref="0.0"/>
+      <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-5 1e-5 1e-5"/>
+      <body name="evader0_y" pos="0 0 0">
+        <joint name="evader0_y" type="slide" axis="0 1 0" range="-40.0 40.0" damping="4.0" ref="0.0"/>
+        <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-5 1e-5 1e-5"/>
+        <body name="evader0_z" pos="0 0 0">
+          <joint name="evader0_z" type="slide" axis="0 0 1" range="0.5 20.0" damping="4.0" ref="0.0"/>
+          <geom name="evader0" type="sphere" size="0.5" mass="1.0"
+                rgba="0.20 0.55 0.85 1" contype="0" conaffinity="0"/>
+          <site name="evader0_site" pos="0 0 0" size="0.05"/>
+        </body>
+      </body>
+    </body>
+    <body name="evader1_x" pos="0 0 0">
+      <joint name="evader1_x" type="slide" axis="1 0 0" range="-40.0 40.0" damping="4.0" ref="0.0"/>
+      <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-5 1e-5 1e-5"/>
+      <body name="evader1_y" pos="0 0 0">
+        <joint name="evader1_y" type="slide" axis="0 1 0" range="-40.0 40.0" damping="4.0" ref="0.0"/>
+        <inertial pos="0 0 0" mass="1e-3" diaginertia="1e-5 1e-5 1e-5"/>
+        <body name="evader1_z" pos="0 0 0">
+          <joint name="evader1_z" type="slide" axis="0 0 1" range="0.5 20.0" damping="4.0" ref="0.0"/>
+          <geom name="evader1" type="sphere" size="0.5" mass="1.0"
+                rgba="0.20 0.55 0.85 1" contype="0" conaffinity="0"/>
+          <site name="evader1_site" pos="0 0 0" size="0.05"/>
+        </body>
+      </body>
+    </body>
+    <body name="asset" mocap="true" pos="-32.0 0.0 1.5">
+      <geom name="asset" type="sphere" size="1.6" rgba="0.95 0.80 0.20 1"
+            contype="0" conaffinity="0"/>
+      <site name="asset_site" pos="0 0 0" size="0.05"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="pursuer0_x" joint="pursuer0_x" gear="30.0" ctrlrange="-1 1"/>
+    <motor name="pursuer0_y" joint="pursuer0_y" gear="30.0" ctrlrange="-1 1"/>
+    <motor name="pursuer0_z" joint="pursuer0_z" gear="30.0" ctrlrange="-1 1"/>
+    <motor name="pursuer1_x" joint="pursuer1_x" gear="30.0" ctrlrange="-1 1"/>
+    <motor name="pursuer1_y" joint="pursuer1_y" gear="30.0" ctrlrange="-1 1"/>
+    <motor name="pursuer1_z" joint="pursuer1_z" gear="30.0" ctrlrange="-1 1"/>
+    <motor name="evader0_x" joint="evader0_x" gear="44.0" ctrlrange="-1 1"/>
+    <motor name="evader0_y" joint="evader0_y" gear="44.0" ctrlrange="-1 1"/>
+    <motor name="evader0_z" joint="evader0_z" gear="44.0" ctrlrange="-1 1"/>
+    <motor name="evader1_x" joint="evader1_x" gear="44.0" ctrlrange="-1 1"/>
+    <motor name="evader1_y" joint="evader1_y" gear="44.0" ctrlrange="-1 1"/>
+    <motor name="evader1_z" joint="evader1_z" gear="44.0" ctrlrange="-1 1"/>
+  </actuator>
+</mujoco>

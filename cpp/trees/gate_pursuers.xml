@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!-- Gate for the pursuer team. Edit/inspect in Groot2. First branch whose
+     condition succeeds sets the mode; RL owns messy regimes, scripted owns
+     clean geometry. Mirrors src/pursuit_evasion/bt/gating.py. -->
+<root BTCPP_format="4" main_tree_to_execute="GatePursuers">
+  <BehaviorTree ID="GatePursuers">
+    <Fallback name="gate">
+      <Sequence name="close_quarters_to_rl">
+        <CloseQuarters/>
+        <SetMode mode="rl"/>
+      </Sequence>
+      <Sequence name="juking_to_rl">
+        <TargetJuking/>
+        <SetMode mode="rl"/>
+      </Sequence>
+      <Sequence name="contested_to_rl">
+        <Contested/>
+        <SetMode mode="rl"/>
+      </Sequence>
+      <Sequence name="clean_intercept_to_scripted">
+        <CleanIntercept/>
+        <SetMode mode="scripted"/>
+      </Sequence>
+      <SetMode mode="scripted"/>
+    </Fallback>
+  </BehaviorTree>
+</root>

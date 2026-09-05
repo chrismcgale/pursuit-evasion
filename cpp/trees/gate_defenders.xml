@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Air-defence gate profile. Mirrors gating.py:_defender_predicates EXACTLY.
+
+  This tree is deliberately SHORTER than the tag profile, and that is the
+  finding, not an omission. Measured on `assault` (150 eps x 2 seed blocks,
+  DAgger policy on the RL branch), gating one predicate at a time:
+
+      scripted only ............................ 0.54 / 0.56
+      InterceptInfeasible -> rl ................ 0.70 / 0.71   <-- shipped
+      + ThreatImminent -> rl ................... 0.45 / 0.45
+      + DefenderCloseQuarters -> rl ............ 0.12 / 0.12
+      rl only .................................. 0.03
+
+  The tag instinct ("close quarters is messy, hand it to the policy") is
+  actively harmful here, costing 42 points: the terminal endgame against a
+  missile is not a scrappy dogfight, it is a precise geometry problem the
+  lead-intercept law solves near-optimally. The one regime worth handing over
+  is where the scripted law is not merely imprecise but STRUCTURALLY UNDEFINED
+  — no positive intercept root exists, so it falls back to parking on a static
+  gate point and has nothing better to offer.
+
+  ThreatImminent / DefenderCloseQuarters stay registered in bt_nodes.cpp so the
+  ablation is reproducible from Groot2 by editing this file alone.
+-->
+<root BTCPP_format="4" main_tree_to_execute="GateDefenders">
+  <BehaviorTree ID="GateDefenders">
+    <Fallback name="gate">
+      <Sequence name="intercept_infeasible_to_rl">
+        <InterceptInfeasible/>
+        <SetMode mode="rl"/>
+      </Sequence>
+      <Sequence name="clean_intercept_to_scripted">
+        <CleanInterceptFeasible/>
+        <SetMode mode="scripted"/>
+      </Sequence>
+      <SetMode mode="scripted"/>
+    </Fallback>
+  </BehaviorTree>
+</root>

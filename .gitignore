@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Models / artifacts (regenerate with pe-train / export_onnx)
+models/
+*.onnx
+*.zip
+results/
+*.mp4
+runs/
+
+# C++ build
+cpp/build/
+
+# logs
+*.log

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Missile-raid gate profile. Mirrors gating.py:_attacker_predicates.
+
+  NOTE: unvalidated. No attacker policy is trained yet, so unlike
+  gate_defenders.xml these branches are design intent, not a measured result.
+  The evader profile plus a "committed" branch: once inside the terminal run-in
+  a missile has no lateral authority left to spend on cleverness, so the
+  scripted guidance law owns it regardless of nearby threats.
+-->
+<root BTCPP_format="4" main_tree_to_execute="GateAttackers">
+  <BehaviorTree ID="GateAttackers">
+    <Fallback name="gate">
+      <Sequence name="committed_to_scripted">
+        <Committed/>
+        <SetMode mode="scripted"/>
+      </Sequence>
+      <Sequence name="threat_close_to_rl">
+        <ThreatClose/>
+        <SetMode mode="rl"/>
+      </Sequence>
+      <Sequence name="threat_closing_fast_to_rl">
+        <ThreatClosingFast/>
+        <SetMode mode="rl"/>
+      </Sequence>
+      <SetMode mode="scripted"/>
+    </Fallback>
+  </BehaviorTree>
+</root>
