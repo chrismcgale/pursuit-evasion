@@ -163,15 +163,18 @@ TEST_CASE("attacker gate: a committed missile flies the guidance law regardless"
   CHECK(route("gate_attackers.xml", f) == "scripted");
 }
 
-TEST_CASE("attacker gate: threats outside the run-in route to the policy") {
+TEST_CASE("attacker gate never routes to the policy — the ablation said so") {
+  // Pins the measured result recorded in gate_attackers.xml and in
+  // gating.py:_attacker_predicates. Both RL branches this profile used to carry
+  // LOST breach rate once there was a real attacker policy to gate with:
+  // 0.46/0.57 scripted -> 0.37/0.38 fully gated -> 0.33/0.35 policy only.
+  // The missile side therefore hands over nothing. Python mirror:
+  // test_games.py::test_attacker_gate_hands_over_nothing.
   auto f = obj_base();
-  f.asset_dist = 30.0;   // not committed yet
-  f.dist_nearest = 3.0;  // < evader_danger (4)
-  CHECK(route("gate_attackers.xml", f) == "rl");
-  f = obj_base();
-  f.asset_dist = 30.0;
-  f.closing_rate = 5.0;  // > closing_fast (3)
-  CHECK(route("gate_attackers.xml", f) == "rl");
+  f.asset_dist = 30.0;   // not committed...
+  f.dist_nearest = 1.0;  // ...an interceptor is right on top of us...
+  f.closing_rate = 9.0;  // ...and closing hard. Still scripted.
+  CHECK(route("gate_attackers.xml", f) == "scripted");
 }
 
 // ----------------------------------------------------------------- game specs

@@ -26,6 +26,9 @@ pe-eval = "pursuit_evasion.eval.evaluate:main"
 pe-games = "pursuit_evasion.eval.games:main"
 pe-viz = "pursuit_evasion.eval.viz:main"
 pe-parity = "pursuit_evasion.eval.parity:main"
+pe-ablate = "pursuit_evasion.eval.ablation:main"
+pe-trace = "pursuit_evasion.eval.trace:main"
+pe-explore = "pursuit_evasion.eval.explorer:main"
 
 [build-system]
 requires = ["hatchling"]

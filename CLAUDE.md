@@ -40,6 +40,21 @@ where the scripted law is **structurally undefined** (no positive lead-intercept
 root, so it parks on a static gate point). Keep it at two branches; see
 `writeup/when-each-wins.md` §7 and the ablation in `_defender_predicates`.
 
+**The attacker gate hands over nothing, and that is measured too.** The same
+ablation on the evader/missile slot came out monotonically downhill (breach
+0.46/0.57 scripted → 0.37/0.38 fully gated → 0.33/0.35 policy-only), so both RL
+branches were deleted; `_attacker_predicates` and `cpp/trees/gate_attackers.xml`
+now route everything to scripted. Do not "restore" them — a committed run-in is
+what a guidance law is for, and the loss is pinned by
+`test_attacker_gate_hands_over_nothing` in both runtimes.
+
+The generalisation, and the rule to apply before writing any new profile: **gate
+where the scripted controller is undefined, not where the situation looks messy.**
+If the scripted law is well-defined across the whole state space, expect a gate to
+lose, and prefer not shipping one. Derive each profile with
+`pe-ablate --game <g> --side <pursuers|evaders>` on ≥2 seed blocks; a few points
+of difference at 150 episodes is noise, not a branch worth keeping.
+
 ## Two runtimes, one set of semantics
 
 - **Python (train + research):** MuJoCo (python), SB3 PPO self-play, py_trees gate

@@ -31,9 +31,9 @@ the regime where the scripted controller is weak is a *different* regime:
       ├─ Sequence  clean intercept?      → MODE = SCRIPTED (lead geometry works)
       └─ MODE = SCRIPTED
 
-The attacker (missile) profile is the evader profile plus a "committed" branch:
-once inside the terminal run-in there is no lateral authority left to spend on
-cleverness, so the scripted guidance law owns it regardless of threats.
+The attacker (missile) profile hands over **nothing** — measured, not assumed.
+Every RL branch tried there lost breach rate, because a committed run-in is
+exactly what a guidance law is for. See ``_attacker_predicates``.
 """
 from __future__ import annotations
 
@@ -151,15 +151,41 @@ def _defender_predicates():
 
 
 def _attacker_predicates():
-    """Missile-side profile. NOTE: unvalidated — no attacker policy is trained yet,
-    so unlike the defender profile above these thresholds are design intent, not
-    a measured result. Treat with suspicion until there is a raid policy to gate.
+    """Missile-side profile — and the measured answer is **do not gate at all**.
+
+    This profile used to carry the evader tree's two RL branches as design intent,
+    flagged unvalidated. An attacker DAgger policy (``assault_attacker_dagger``,
+    breach 0.33/0.35) now exists, so the same cumulative ablation could be run
+    against it (``pe-ablate --game assault --side evaders``, 150 eps x 2 blocks,
+    scored as **breach rate**, higher = better for the attacker):
+
+        scripted only ............................ 0.46 / 0.57
+        + committed -> SCRIPTED .................. 0.46 / 0.57   (no-op by design)
+        + threat_close -> RL ..................... 0.41 / 0.49
+        + threat_closing_fast -> RL .............. 0.37 / 0.38
+        policy only .............................. 0.33 / 0.35
+
+    Monotonically downhill: every handoff costs breach rate, and the scripted
+    guidance law dominates end to end. So the RL branches are gone, and what
+    remains is one branch that routes to SCRIPTED — i.e. the attacker gate is
+    deliberately a no-op, kept only because it documents the run-in regime
+    legibly in Groot2.
+
+    Read this against ``_defender_predicates``: same game, same machinery,
+    opposite verdict. The defender gains 16 points from exactly one handoff; the
+    attacker gains nothing from any. The difference is not "which side is
+    harder" — it is that the defender's scripted law has a regime where it is
+    **structurally undefined** (no positive intercept root, so it parks on a
+    static gate point) and the missile's guidance law has no such regime. A
+    committed run-in is precisely the case a proportional-navigation law is for.
+
+    Generalised, that is the project's main transferable claim: hand a regime to
+    the policy where the scripted controller is *undefined*, not merely where it
+    is imprecise or where the situation merely feels messy.
     """
     return [
         # committed run-in: no lateral authority left to spend, fly the guidance law
         ("committed", lambda f, t: f.asset_dist < t.committed_range, MODE_SCRIPTED),
-        ("threat_close", lambda f, t: f.dist_nearest < t.evader_danger, MODE_RL),
-        ("threat_closing_fast", lambda f, t: f.closing_rate > t.closing_fast, MODE_RL),
     ]
 
 
@@ -168,6 +194,36 @@ _PREDICATES = {
     "evader": _evader_predicates,
     "defender": _defender_predicates,
     "attacker": _attacker_predicates,
+}
+
+
+# Display-only decomposition of each predicate into its terms, for the trace
+# viewer: (feature, operator, threshold-name-or-literal). The viewer renders the
+# live numbers so you can see *how close* a branch came to firing, not just that
+# it did. This duplicates the lambdas above, so ``test_branch_reads_match_predicates``
+# asserts the key sets agree exactly and that every name resolves on
+# ``AgentFeatures`` / ``GateThresholds`` — add a predicate without an entry here
+# and the suite fails.
+BRANCH_READS = {
+    "pursuer": {
+        "close_quarters": [("dist_nearest", "<", "close_quarters")],
+        "target_juking": [("target_lateral", ">", "juke_lateral"),
+                          ("dist_nearest", "<", "juke_min_dist")],
+        "contested": [("contested", "is", True), ("n_live_others", ">=", 2)],
+        "clean_intercept": [("intercept_ahead", "is", True)],
+    },
+    "evader": {
+        "threat_close": [("dist_nearest", "<", "evader_danger")],
+        "threat_closing_fast": [("closing_rate", ">", "closing_fast")],
+    },
+    "defender": {
+        "intercept_infeasible": [("intercept_feasible", "is", False)],
+        "clean_intercept": [("intercept_feasible", "is", True),
+                            ("intercept_ahead", "is", True)],
+    },
+    "attacker": {
+        "committed": [("asset_dist", "<", "committed_range")],
+    },
 }
 
 
@@ -214,11 +270,37 @@ class GatedController(BaseController):
             self.bb.register_key(f"{self._ns}/{key}", access=py_trees.common.Access.WRITE)
         self.tree = build_gate_tree(team, _NS(self.bb, self._ns), self.profile)
         self.mode_counts = {MODE_SCRIPTED: 0, MODE_RL: 0}
+        # Opt-in per-tick record for the trace viewer: which branch fired, the
+        # features it saw, and what each controller wanted. Off by default — act()
+        # runs millions of times during DAgger and must not allocate for nothing.
+        self.trace = False
+        self.last_decisions: list[dict] = []
 
     def reset(self):
         self.scripted.reset()
         self.rl.reset()
         self.mode_counts = {MODE_SCRIPTED: 0, MODE_RL: 0}
+        self.last_decisions = []
+
+    def evaluate_branches(self, features) -> list[dict]:
+        """Every branch's truth value this tick, in Selector order.
+
+        Re-evaluated rather than scraped out of py_trees: a Selector returns on
+        the first child that succeeds, so the nodes after the winner are never
+        ticked and have no status to read. Evaluating all of them here keeps the
+        tracing read-only (no instrumented node subclasses) and lets the viewer
+        show the branches that *nearly* fired, which is where the interesting
+        gate behaviour lives.
+        """
+        return [{"name": name, "mode": mode, "passed": bool(pred(features, self.thresholds))}
+                for name, pred, mode in _PREDICATES[self.profile]()]
+
+    def _fired_branch(self, features):
+        """Which predicate the Selector would have taken — the first that passes."""
+        for b in self.evaluate_branches(features):
+            if b["passed"]:
+                return b["name"], b["mode"]
+        return "default", MODE_SCRIPTED
 
     def act(self, view: TeamView) -> np.ndarray:
         scripted_a = np.asarray(self.scripted.act(view), dtype=np.float64).reshape(-1, 3)
@@ -226,16 +308,25 @@ class GatedController(BaseController):
         n_self = view.self_pos.shape[0]
         out = np.zeros((n_self, 3))
         nsbb = _NS(self.bb, self._ns)
+        if self.trace:
+            self.last_decisions = []
         for i in range(n_self):
             if not view.self_alive[i]:
                 continue
-            nsbb.set("features", agent_features(view, i))
+            features = agent_features(view, i)
+            nsbb.set("features", features)
             nsbb.set("thresholds", self.thresholds)
             nsbb.set("mode", MODE_SCRIPTED)
             self.tree.tick()
             mode = nsbb.get("mode")
             self.mode_counts[mode] += 1
             out[i] = rl_a[i] if mode == MODE_RL else scripted_a[i]
+            if self.trace:
+                evals = self.evaluate_branches(features)
+                branch = next((b["name"] for b in evals if b["passed"]), "default")
+                self.last_decisions.append(
+                    {"agent": i, "mode": mode, "branch": branch, "features": features,
+                     "evals": evals, "scripted": scripted_a[i].copy(), "rl": rl_a[i].copy()})
         return np.clip(out.reshape(-1), -1, 1)
 
 

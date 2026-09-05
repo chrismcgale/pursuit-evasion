@@ -2,11 +2,27 @@
 <!--
   Missile-raid gate profile. Mirrors gating.py:_attacker_predicates.
 
-  NOTE: unvalidated. No attacker policy is trained yet, so unlike
-  gate_defenders.xml these branches are design intent, not a measured result.
-  The evader profile plus a "committed" branch: once inside the terminal run-in
-  a missile has no lateral authority left to spend on cleverness, so the
-  scripted guidance law owns it regardless of nearby threats.
+  This tree deliberately never routes to the policy. It used to carry the evader
+  profile's ThreatClose / ThreatClosingFast branches as design intent; once an
+  attacker policy existed to gate, the cumulative ablation (assault, 150 eps x 2
+  blocks, scored as breach rate, higher is better for the attacker) came out
+  monotonically downhill:
+
+      scripted only .......................... 0.46 / 0.57
+      + Committed -> scripted ................ 0.46 / 0.57   (no-op by design)
+      + ThreatClose -> rl .................... 0.41 / 0.49
+      + ThreatClosingFast -> rl .............. 0.37 / 0.38
+      policy only ............................ 0.33 / 0.35
+
+  So both RL branches were removed. What is left is one branch that routes to
+  "scripted" and a default that does the same: kept because it states the run-in
+  regime legibly in Groot2, not because it changes any behaviour.
+
+  Contrast gate_defenders.xml, which gains 16 points from exactly one handoff.
+  Same game, same machinery, opposite verdict: the defender's scripted law has a
+  regime where it is structurally undefined (no positive intercept root, so it
+  parks on a static gate point) and the missile's guidance law has no such
+  regime — a committed run-in is precisely what that law is for.
 -->
 <root BTCPP_format="4" main_tree_to_execute="GateAttackers">
   <BehaviorTree ID="GateAttackers">
@@ -14,14 +30,6 @@
       <Sequence name="committed_to_scripted">
         <Committed/>
         <SetMode mode="scripted"/>
-      </Sequence>
-      <Sequence name="threat_close_to_rl">
-        <ThreatClose/>
-        <SetMode mode="rl"/>
-      </Sequence>
-      <Sequence name="threat_closing_fast_to_rl">
-        <ThreatClosingFast/>
-        <SetMode mode="rl"/>
       </Sequence>
       <SetMode mode="scripted"/>
     </Fallback>

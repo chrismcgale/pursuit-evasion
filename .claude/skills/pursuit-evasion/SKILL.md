@@ -32,6 +32,23 @@ uv run pe-viz --game escort --controller bt --out escort.mp4
 uv run python -m pursuit_evasion.env.dump_arenas --check    # cpp/assets/*.xml are GENERATED
 ```
 
+Gate analysis — how every shipped profile was derived. Always ≥2 seed blocks; a
+few points at 150 episodes is noise, not a branch worth keeping:
+```bash
+uv run pe-ablate --game assault --side pursuers --episodes 150 --blocks 2  # defender profile
+uv run pe-ablate --game assault --side evaders                             # attacker profile
+uv run python -m pursuit_evasion.train.dagger --game assault --side evaders \
+    --iterations 8 --episodes 100 --select-episodes 100                    # attacker policy
+```
+
+Per-decision instrumentation — why the gate did what it did, not just whether it
+worked. Writes one self-contained HTML file (open it directly, no server):
+```bash
+uv run pe-explore --game assault --seed 3      # records scripted/bt/bt_safe on the SAME seed
+uv run pe-explore --game tag --controllers scripted bt_safe --seed 13
+uv run pe-trace --game assault --controller bt_safe --seed 0   # raw JSON only
+```
+
 C++ (production runtime), from `cpp/`:
 ```bash
 cmake -S . -B build -G Ninja -DCMAKE_POLICY_VERSION_MINIMUM=3.5   # first configure fetches BT.CPP + doctest
@@ -124,6 +141,43 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-09-05** **Attacker gate deleted its RL branches — the ablation said
+  "don't gate".** Trained the first attacker policy (`assault_attacker_dagger`,
+  breach 0.33/0.35) and ran the same cumulative ablation on the missile profile.
+  Monotonically downhill: 0.46/0.57 scripted → 0.41/0.49 (+`threat_close`) →
+  0.37/0.38 (+`threat_closing_fast`) → 0.33/0.35 policy-only.
+  - Removed both RL branches from `_attacker_predicates` **and**
+    `cpp/trees/gate_attackers.xml`; what remains routes everything to scripted.
+    Pinned by `test_attacker_gate_hands_over_nothing` in both runtimes; C++ tests
+    and `pe-parity` re-validated (exact on all 5 starts).
+  - The value is the *contrast* with the defender gate (+16 points from one
+    branch): hand a regime to the policy where the scripted law is **structurally
+    undefined**, not where the situation merely looks messy. A missile's guidance
+    law has no undefined regime, so there is nothing worth handing over.
+    Writeup §7.1.
+
+- **2026-09-05** **Added the gate explorer — per-decision instrumentation.**
+  `eval/trace.py` records every control step (fired branch, *all* branch
+  predicates with live values, both controllers' candidate actions, the applied
+  command, per-tick shield corrections); `eval/explorer.py` inlines it into a
+  standalone HTML viewer (`pe-explore`; no server/CDN, `#trace/step/agent` deep
+  links). Branch display metadata lives in `BRANCH_READS` beside the predicates
+  and `test_branch_reads_match_predicates` fails on drift, so the viewer cannot
+  explain a tree different from the one that ran.
+  - Surfaced two things the aggregates hid: `assault` seed 3 flips a breach into
+    a double capture using **3 of 62 agent-ticks**, and `tag` seed 13 is an
+    episode the safety filter *loses* despite being strongly net-positive overall.
+
+- **2026-09-05** **Retrained tag DAgger under fixed dynamics; tag numbers moved
+  up.** Refit scores **0.20** on the independent 200-episode battery vs the old
+  checkpoint's 0.14; shipped as `models/pursuer_dagger.zip` (ONNX re-exported,
+  parity 9.5e-07). Regenerated `results.json` / `games.json`. `bt_gated_safe` now
+  reaches **0.46**, level with the scripted baseline — making the safety filter
+  the largest single lever on the learned side (0.19 → 0.46).
+  - Also a clean winner's-curse datapoint: the refit scored 0.30 on its own
+    40-episode selection battery and 0.20 held out. Re-measure every selected
+    checkpoint on a disjoint battery.
 
 - **2026-09-05** **Fixed anisotropic drone thrust — it moved every learned tag
   number.** The command is now clipped by norm; the pre-multi-game code clipped

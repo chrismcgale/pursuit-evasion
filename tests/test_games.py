@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from pursuit_evasion.bt import GatedController, agent_features
+from pursuit_evasion.bt.features import AgentFeatures
 from pursuit_evasion.bt.gating import MODE_RL, MODE_SCRIPTED, default_profile
 from pursuit_evasion.env import (GAME_KEYS, PursuitEvasionCore, apply_dynamics,
                                  build_team_obs, is_spent, make_game, obs_dim,
@@ -281,6 +282,36 @@ def test_attacker_gate_commits_inside_the_terminal_run_in():
     assert name == "committed" and pred(f, thr) and mode == MODE_SCRIPTED
 
 
+def test_attacker_gate_hands_over_nothing():
+    """Pins the attacker ablation — see _attacker_predicates' docstring.
+
+    The missile profile originally carried the evader tree's two RL branches as
+    design intent. Measured against a real attacker policy they were monotonically
+    harmful (breach 0.46/0.57 scripted -> 0.37/0.38 fully gated -> 0.33/0.35
+    policy only), so they are gone and the attacker gate is a deliberate no-op.
+
+    This is the counterweight to test_defender_gate_does_not_hand_close_quarters
+    _to_the_policy: same game, same machinery, opposite verdict. A handoff is
+    worth it where the scripted law is structurally undefined, not merely where
+    the situation is messy.
+
+    The C++ half ticks the shipped trees/gate_attackers.xml in
+    cpp/tests/test_games.cpp.
+    """
+    from pursuit_evasion.bt.gating import GateThresholds, _PREDICATES
+
+    thr = GateThresholds()
+    f = agent_features(PursuitEvasionCore(seed=0, game="assault").reset(seed=0)[1], 0)
+    f.asset_dist = 30.0      # not committed...
+    f.dist_nearest = 0.5     # ...interceptor on top of us...
+    f.closing_rate = 9.0     # ...and closing hard
+    fired = [(n, m) for n, pred, m in _PREDICATES["attacker"]() if pred(f, thr)]
+    assert all(m == MODE_SCRIPTED for _, m in fired), fired
+    assert all(m == MODE_SCRIPTED for _, _, m in _PREDICATES["attacker"]()), (
+        "the attacker gate must not route any regime to the policy")
+    assert [n for n, _, _ in _PREDICATES["attacker"]()] == ["committed"]
+
+
 def test_defender_gate_hands_off_when_intercept_is_infeasible():
     from pursuit_evasion.bt.gating import GateThresholds, _PREDICATES
     thr = GateThresholds()
@@ -337,3 +368,80 @@ def test_gated_controller_runs_an_objective_episode(key):
             break
     assert gate.profile == "defender"
     assert sum(gate.mode_counts.values()) > 0
+
+
+def test_branch_reads_match_predicates():
+    """BRANCH_READS is display metadata for the trace viewer, duplicated from the
+    predicate lambdas. This is the thing that stops it silently going stale: every
+    profile's key set must match exactly, and every name it mentions must resolve
+    on AgentFeatures / GateThresholds. Add a branch without annotating it and the
+    viewer would render an empty explanation — fail here instead.
+    """
+    from dataclasses import fields
+
+    from pursuit_evasion.bt.gating import BRANCH_READS, GateThresholds, _PREDICATES
+
+    feat_names = {f.name for f in fields(AgentFeatures)}
+    thr_names = {f.name for f in fields(GateThresholds)}
+    assert BRANCH_READS.keys() == _PREDICATES.keys()
+    for profile, preds in _PREDICATES.items():
+        assert BRANCH_READS[profile].keys() == {n for n, _, _ in preds()}, profile
+        for branch, terms in BRANCH_READS[profile].items():
+            for feature, op, thr in terms:
+                assert feature in feat_names, (profile, branch, feature)
+                assert isinstance(thr, (bool, int, float)) or thr in thr_names, \
+                    (profile, branch, thr)
+                assert op in ("<", ">", "<=", ">=", "is"), (profile, branch, op)
+
+
+def test_evaluate_branches_agrees_with_the_selector():
+    """The viewer shows all branches, but the *fired* one must still be whatever
+    py_trees actually picked — tracing is read-only and must not become a second,
+    subtly-different gate implementation."""
+    from pursuit_evasion.scripted.base import ZeroController
+
+    scripted, attackers = default_controllers("assault")
+    gate = GatedController("pursuers", scripted, ZeroController(2), game="assault")
+    gate.trace = True
+    core = PursuitEvasionCore(seed=3, game=make_game("assault"))
+    pv, ev = core.reset(seed=3)
+    gate.reset()
+    gate.trace = True
+    attackers.reset()
+    seen = set()
+    for _ in range(60):
+        r = core.step(gate.act(pv), attackers.act(ev))
+        for d in gate.last_decisions:
+            first = next((b for b in d["evals"] if b["passed"]), None)
+            assert d["branch"] == (first["name"] if first else "default")
+            # the mode the tree wrote to the blackboard must match the branch's
+            assert d["mode"] == (first["mode"] if first else MODE_SCRIPTED)
+            seen.add(d["branch"])
+        pv, ev = r.pursuer_view, r.evader_view
+        if r.terminated or r.truncated:
+            break
+    assert seen, "no gate decisions were traced"
+
+
+def test_trace_and_explorer_round_trip(tmp_path):
+    """The explorer inlines the trace as JSON into a standalone HTML file, so the
+    trace must stay JSON-serialisable (inf/nan are nulled) and the page must carry
+    no external references — it gets opened straight off disk, often on a machine
+    without the repo.
+    """
+    import json
+
+    from pursuit_evasion.eval.explorer import build
+    from pursuit_evasion.eval.trace import record
+
+    tr = record("assault", "scripted", None, seed=1)
+    assert tr["steps"] and tr["branches"] == []          # no gate on a scripted run
+    json.dumps(tr)                                        # would raise on inf/nan
+
+    dest = build([tr], tmp_path / "e.html")
+    html = dest.read_text()
+    assert "__DATA__" not in html                         # placeholder was substituted
+    assert "src=\"http" not in html and "@import" not in html
+    # the inlined payload must parse back out
+    blob = html.split("const TRACES = ", 1)[1].split(";\nconst C", 1)[0]
+    assert json.loads(blob)[0]["game"] == "assault"
