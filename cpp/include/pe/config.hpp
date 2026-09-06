@@ -58,6 +58,7 @@ struct GateThresholds {
   double defender_close = 6.0;    // defender: engagement range (bigger arena)
   double threat_imminent = 1.6;   // defender: seconds-to-asset that means "now"
   double committed_range = 8.0;   // attacker: inside this it is a ballistic run-in
+  int infeasible_persist = 3;     // defender: ticks infeasibility must persist to hand over
 };
 
 inline std::vector<std::string> pursuer_names(const ArenaConfig& c) {

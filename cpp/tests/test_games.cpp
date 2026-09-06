@@ -14,6 +14,7 @@
 #include "pe/dynamics.hpp"
 #include "pe/features.hpp"
 #include "pe/games.hpp"
+#include "pe/gate.hpp"
 
 using namespace pe;
 
@@ -130,12 +131,70 @@ TEST_CASE("drones never go spent — they have no finite burn") {
 
 // ------------------------------------------------------------------ gate nodes
 
-TEST_CASE("InterceptInfeasible fires exactly when no intercept solution exists") {
+TEST_CASE("InterceptInfeasible fires only once the infeasibility has persisted") {
   auto f = obj_base();
+  GateThresholds t;
   f.intercept_feasible = false;
+  f.infeasible_ticks = t.infeasible_persist - 1;  // one tick short of the debounce
+  CHECK(route("gate_defenders.xml", f) == "scripted");
+  f.infeasible_ticks = t.infeasible_persist;
   CHECK(route("gate_defenders.xml", f) == "rl");
   f.intercept_feasible = true;
+  f.infeasible_ticks = 0;
   CHECK(route("gate_defenders.xml", f) == "scripted");
+}
+
+// The controller-level half of the debounce (Python mirror:
+// test_games.py::test_defender_handover_requires_persistent_infeasibility):
+// the per-agent streak must accumulate across act() calls, reset on a feasible
+// tick, and clear on reset(). The missile receding at 11 m/s from a 7.5 m/s
+// defender has no positive lead-intercept root — genuinely infeasible.
+namespace {
+struct ConstCtl : Controller {
+  double v;
+  explicit ConstCtl(double x) : v(x) {}
+  std::vector<double> act(const TeamView& view) override {
+    return std::vector<double>(view.n_self() * 3, v);
+  }
+};
+
+TeamView defender_view(double missile_vel_x) {
+  TeamView v;
+  v.team = Team::Pursuers;
+  v.self_pos = {{0, 0, 3}};
+  v.self_vel = {{0, 0, 0}};
+  v.self_alive = {1};
+  v.opp_pos = {{20, 0, 3}};
+  v.opp_vel = {{missile_vel_x, 0, 0}};
+  v.opp_alive = {1};
+  v.vmax = 7.5;
+  v.opp_vmax = 11.0;
+  v.game = "assault";
+  v.has_asset = true;
+  v.asset_pos = {-5, 0, 3};
+  return v;
+}
+}  // namespace
+
+TEST_CASE("defender handover requires persistent infeasibility") {
+  ConstCtl scripted(0.25), rl(-0.75);
+  GateThresholds t;
+  GatedController gc(Team::Pursuers, &scripted, &rl,
+                     std::string(PE_TREES_DIR) + "/gate_defenders.xml", t);
+  TeamView infeasible = defender_view(11.0), feasible = defender_view(-11.0);
+  REQUIRE_FALSE(agent_features(infeasible, 0).intercept_feasible);
+  REQUIRE(agent_features(feasible, 0).intercept_feasible);
+
+  for (int k = 0; k < t.infeasible_persist - 1; ++k)  // 2 ticks: stay scripted
+    CHECK(gc.act(infeasible)[0] == 0.25);
+  gc.act(feasible);                                   // feasible tick resets
+  for (int k = 0; k < t.infeasible_persist - 1; ++k)
+    CHECK(gc.act(infeasible)[0] == 0.25);
+  CHECK(gc.act(infeasible)[0] == -0.75);              // k-th consecutive: hand over
+  CHECK(gc.mode_counts["rl"] == 1);
+
+  gc.reset();                                         // reset() clears the streak
+  CHECK(gc.act(infeasible)[0] == 0.25);
 }
 
 // This is the finding, pinned as a test: the tag instinct "close quarters is

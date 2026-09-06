@@ -24,8 +24,10 @@ The objective games (``assault`` / ``escort``) add two more profiles, because
 the regime where the scripted controller is weak is a *different* regime:
 
     Selector "gate[defender]"
-      ├─ Sequence  intercept infeasible? → MODE = RL       (scripted falls back
-      │                                                     to a static gate)
+      ├─ Sequence  infeasible k ticks?   → MODE = RL       (scripted falls back
+      │                                                     to a static gate;
+      │                                                     debounced, see
+      │                                                     _defender_predicates)
       ├─ Sequence  threat imminent?      → MODE = RL       (terminal endgame)
       ├─ Sequence  close quarters?       → MODE = RL
       ├─ Sequence  clean intercept?      → MODE = SCRIPTED (lead geometry works)
@@ -65,6 +67,7 @@ class GateThresholds:
     defender_close: float = 6.0      # defender: engagement range (scale is bigger here)
     threat_imminent: float = 1.6     # defender: seconds-to-asset that means "now"
     committed_range: float = 8.0     # attacker: inside this it is a ballistic run-in
+    infeasible_persist: int = 3      # defender: ticks infeasibility must persist to hand over
 
 
 # ---- leaf behaviours -------------------------------------------------------
@@ -140,10 +143,22 @@ def _defender_predicates():
     scripted law is not merely imprecise but **structurally undefined**: no
     positive intercept solution exists, so it falls back to parking on a static
     gate point and has nothing better to offer.
+
+    The handover is **debounced**: infeasibility must persist for
+    ``infeasible_persist`` consecutive gate ticks (default 3) before the policy
+    takes over. The raw predicate had a measured escalation anti-pattern under
+    a degraded link: handover share rose 16%→22% as the estimate got worse,
+    because feasibility computed from a stale or noisy track reads as "no
+    solution exists" — routing control to the policy at exactly the moment its
+    observations are least trustworthy. A genuinely infeasible geometry persists
+    for far longer than 3 ticks, so the debounce costs the true handover ~180 ms
+    and filters the false one. ``GatedController`` maintains the per-agent
+    streak and stamps it into ``AgentFeatures.infeasible_ticks``.
     """
     return [
         # the scripted law has no answer here — it parks on a static gate point
-        ("intercept_infeasible", lambda f, t: not f.intercept_feasible, MODE_RL),
+        ("intercept_infeasible",
+         lambda f, t: f.infeasible_ticks >= t.infeasible_persist, MODE_RL),
         # kept for legibility in Groot2: this is the regime scripted owns outright
         ("clean_intercept", lambda f, t: f.intercept_feasible and f.intercept_ahead,
          MODE_SCRIPTED),
@@ -217,7 +232,7 @@ BRANCH_READS = {
         "threat_closing_fast": [("closing_rate", ">", "closing_fast")],
     },
     "defender": {
-        "intercept_infeasible": [("intercept_feasible", "is", False)],
+        "intercept_infeasible": [("infeasible_ticks", ">=", "infeasible_persist")],
         "clean_intercept": [("intercept_feasible", "is", True),
                             ("intercept_ahead", "is", True)],
     },
@@ -270,6 +285,9 @@ class GatedController(BaseController):
             self.bb.register_key(f"{self._ns}/{key}", access=py_trees.common.Access.WRITE)
         self.tree = build_gate_tree(team, _NS(self.bb, self._ns), self.profile)
         self.mode_counts = {MODE_SCRIPTED: 0, MODE_RL: 0}
+        # per-agent count of consecutive infeasible ticks, for the debounced
+        # defender handover (see _defender_predicates)
+        self._infeasible_streak: dict[int, int] = {}
         # Opt-in per-tick record for the trace viewer: which branch fired, the
         # features it saw, and what each controller wanted. Off by default — act()
         # runs millions of times during DAgger and must not allocate for nothing.
@@ -280,6 +298,7 @@ class GatedController(BaseController):
         self.scripted.reset()
         self.rl.reset()
         self.mode_counts = {MODE_SCRIPTED: 0, MODE_RL: 0}
+        self._infeasible_streak = {}
         self.last_decisions = []
 
     def evaluate_branches(self, features) -> list[dict]:
@@ -314,6 +333,9 @@ class GatedController(BaseController):
             if not view.self_alive[i]:
                 continue
             features = agent_features(view, i)
+            streak = 0 if features.intercept_feasible else self._infeasible_streak.get(i, 0) + 1
+            self._infeasible_streak[i] = streak
+            features.infeasible_ticks = streak
             nsbb.set("features", features)
             nsbb.set("thresholds", self.thresholds)
             nsbb.set("mode", MODE_SCRIPTED)

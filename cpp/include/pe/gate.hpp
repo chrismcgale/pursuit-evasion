@@ -36,6 +36,9 @@ class GatedController : public Controller {
   Controller* scripted_;
   Controller* rl_;
   GateThresholds thr_;
+  // per-agent count of consecutive infeasible ticks, for the debounced
+  // defender handover (mirrors gating.py:GatedController._infeasible_streak)
+  std::vector<int> infeasible_streak_;
   BT::BehaviorTreeFactory factory_;
   std::unique_ptr<BT::Tree> tree_;
   std::unique_ptr<BT::Groot2Publisher> publisher_;

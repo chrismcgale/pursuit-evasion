@@ -22,6 +22,13 @@
 
   ThreatImminent / DefenderCloseQuarters stay registered in bt_nodes.cpp so the
   ablation is reproducible from Groot2 by editing this file alone.
+
+  InterceptInfeasible is DEBOUNCED: it fires only once the infeasibility has
+  persisted `infeasible_persist` consecutive gate ticks (default 3; the
+  GatedController maintains the per-agent streak). The raw predicate escalated
+  to the policy MORE as the link degraded (16% -> 22% handover share) — a
+  feasibility computed from a stale estimate reads as "no solution exists"
+  exactly when the policy's own observations are least trustworthy.
 -->
 <root BTCPP_format="4" main_tree_to_execute="GateDefenders">
   <BehaviorTree ID="GateDefenders">

@@ -318,7 +318,76 @@ def test_defender_gate_hands_off_when_intercept_is_infeasible():
     name, pred, mode = _PREDICATES["defender"]()[0]
     f = agent_features(PursuitEvasionCore(seed=0, game="assault").reset(seed=0)[0], 0)
     f.intercept_feasible = False
+    f.infeasible_ticks = thr.infeasible_persist
     assert name == "intercept_infeasible" and pred(f, thr) and mode == MODE_RL
+    # one tick short of the debounce must NOT hand over
+    f.infeasible_ticks = thr.infeasible_persist - 1
+    assert not pred(f, thr)
+
+
+class _ConstController:
+    """Stub controller returning a recognisable constant command."""
+
+    def __init__(self, value):
+        self.value = value
+
+    def reset(self):
+        pass
+
+    def act(self, view):
+        return np.full(view.self_pos.shape[0] * 3, self.value)
+
+
+def _defender_view(missile_vel_x):
+    """One defender at the origin watching one missile 20 m out on +x.
+
+    The missile flying away at 11 m/s outruns the 7.5 m/s defender — no
+    positive lead-intercept root, genuinely infeasible. Flip its velocity and
+    the intercept is head-on trivial.
+    """
+    from pursuit_evasion.env.core import (ArenaConfig, TEAM_PURSUERS,
+                                          TeamView)
+    return TeamView(
+        team=TEAM_PURSUERS,
+        self_pos=np.array([[0.0, 0.0, 3.0]]), self_vel=np.zeros((1, 3)),
+        self_alive=np.array([True]),
+        opp_pos=np.array([[20.0, 0.0, 3.0]]),
+        opp_vel=np.array([[missile_vel_x, 0.0, 0.0]]),
+        opp_alive=np.array([True]),
+        time_frac=0.0, arena=ArenaConfig(), vmax=7.5, opp_vmax=11.0,
+        game="assault", asset_pos=np.array([-5.0, 0.0, 3.0]))
+
+
+def test_defender_handover_requires_persistent_infeasibility():
+    """Pins the escalation-anti-pattern fix (ROADMAP #3, REVIEW #13).
+
+    Under a degraded link a single bad estimate can make the intercept look
+    infeasible for a tick; the raw predicate handed control to the policy at
+    exactly that moment (handover share rose 16%→22% as the link degraded).
+    The gate must sit out `infeasible_persist` consecutive infeasible ticks
+    before routing to RL, and a feasible tick must reset the streak.
+    The C++ half lives in cpp/tests/test_games.cpp.
+    """
+    from pursuit_evasion.bt.gating import GateThresholds
+    from pursuit_evasion.env.core import TEAM_PURSUERS
+
+    thr = GateThresholds()
+    gc = GatedController(TEAM_PURSUERS, _ConstController(0.25),
+                         _ConstController(-0.75), thresholds=thr, game="assault")
+    infeasible, feasible = _defender_view(11.0), _defender_view(-11.0)
+    assert not agent_features(infeasible, 0).intercept_feasible
+    assert agent_features(feasible, 0).intercept_feasible
+
+    for tick in range(thr.infeasible_persist - 1):        # 2 ticks: stay scripted
+        assert gc.act(infeasible)[0] == 0.25, f"handed over at tick {tick}"
+    gc.act(feasible)                                      # feasible tick resets
+    for tick in range(thr.infeasible_persist - 1):
+        assert gc.act(infeasible)[0] == 0.25, f"streak survived the reset (tick {tick})"
+    assert gc.act(infeasible)[0] == -0.75                 # k-th consecutive: hand over
+    assert gc.mode_counts[MODE_RL] == 1
+
+    gc.reset()                                            # reset() clears the streak
+    assert gc.act(infeasible)[0] == 0.25
 
 
 def test_defender_gate_does_not_hand_close_quarters_to_the_policy():

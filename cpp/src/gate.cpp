@@ -26,6 +26,7 @@ void GatedController::reset() {
   scripted_->reset();
   rl_->reset();
   mode_counts = {{"scripted", 0}, {"rl", 0}};
+  infeasible_streak_.clear();
 }
 
 std::vector<double> GatedController::act(const TeamView& v) {
@@ -36,9 +37,13 @@ std::vector<double> GatedController::act(const TeamView& v) {
 
   auto bb = tree_->rootBlackboard();
   bb->set("thresholds", thr_);
+  if ((int)infeasible_streak_.size() != n) infeasible_streak_.assign(n, 0);
   for (int i = 0; i < n; ++i) {
     if (!v.self_alive[i]) continue;
-    bb->set("features", agent_features(v, i));
+    AgentFeatures f = agent_features(v, i);
+    infeasible_streak_[i] = f.intercept_feasible ? 0 : infeasible_streak_[i] + 1;
+    f.infeasible_ticks = infeasible_streak_[i];
+    bb->set("features", f);
     bb->set("mode", std::string("scripted"));
     tree_->tickOnce();
     std::string mode = bb->get<std::string>("mode");
