@@ -142,6 +142,19 @@ XML + a gate tree.
 
 ## Changelog / decisions (newest first)
 
+- **2026-09-06** **Sim-to-real link layer + robustness sweep landed; two
+  headline reversals.** `env/link.py` (Vicon/ELRS/whoop failure modes as a
+  controller wrapper, PERFECT pinned bit-identical) + `pe-robust` (Wilson CIs,
+  paired bootstrap, `latency_budget()`). Findings: gate advantage survives
+  `vicon_lab` (+0.16) but dies on the latency axis at 40 ms; the **shield
+  inverts from redundant to load-bearing** under degradation; the gate
+  **escalates to the policy more as the estimate degrades** (16%→22% handover —
+  feasibility computed from a bad estimate reads as "undefined regime");
+  tag's baseline is partly a 100 ms-clock artifact (scripted 0.60→0.88 at
+  20 ms, policy flat). Full state + issues: `docs/REVIEW.md`; plan:
+  `docs/ROADMAP.md`. Vision registered: 2-4 real tinywhoops, staged
+  (robustness → 6-DOF → hardware).
+
 - **2026-09-05** **Attacker gate deleted its RL branches — the ablation said
   "don't gate".** Trained the first attacker policy (`assault_attacker_dagger`,
   breach 0.33/0.35) and ran the same cumulative ablation on the missile profile.

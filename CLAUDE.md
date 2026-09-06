@@ -2,7 +2,9 @@
 
 Always-on source of truth for architecture and invariants. Operational runbook
 lives in `.claude/skills/pursuit-evasion/SKILL.md`; the build plan and rubric
-mapping in `docs/PLAN.md`.
+mapping in `docs/PLAN.md`. **Current state + known issues: `docs/REVIEW.md`;
+direction (staged plan toward 2-4 real tinywhoops): `docs/ROADMAP.md`** — read
+those two before starting work in a fresh session.
 
 ## What this is
 
