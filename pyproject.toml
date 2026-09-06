@@ -29,6 +29,7 @@ pe-parity = "pursuit_evasion.eval.parity:main"
 pe-ablate = "pursuit_evasion.eval.ablation:main"
 pe-trace = "pursuit_evasion.eval.trace:main"
 pe-explore = "pursuit_evasion.eval.explorer:main"
+pe-robust = "pursuit_evasion.eval.robustness:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -21,6 +21,7 @@ import numpy as np
 from ..bt.gating import BRANCH_READS, _PREDICATES, GatedController
 from ..env.core import TEAM_PURSUERS, PursuitEvasionCore
 from ..env.games import GAME_KEYS, make_game
+from ..env.link import PRESETS, LinkedController
 from ..safety import ShieldedController
 from ..scripted import default_controllers
 from ..scripted.base import RLController
@@ -51,14 +52,27 @@ def _controller(kind: str, model_path: str | None, game_key: str):
 
 
 def _gate_of(ctrl):
-    inner = getattr(ctrl, "inner", ctrl)
-    return inner if isinstance(inner, GatedController) else None
+    """Find the gate however deep it is wrapped (shield and/or link)."""
+    seen = ctrl
+    for _ in range(4):
+        if isinstance(seen, GatedController):
+            return seen
+        seen = getattr(seen, "inner", None)
+        if seen is None:
+            return None
+    return None
 
 
-def record(game_key="assault", kind="bt_safe", model_path=None, seed=0) -> dict:
+def record(game_key="assault", kind="bt_safe", model_path=None, seed=0,
+           link: str = "perfect") -> dict:
     game = make_game(game_key)
     core = PursuitEvasionCore(seed=seed, game=game)
     ctrl, opponent = _controller(kind, model_path, game_key)
+    # The link wraps OUTSIDE the shield, matching the deployment topology: the
+    # ground station (tree, policy, shield) all read the same degraded estimate,
+    # and its output then crosses the radio. See env/link.py.
+    if link != "perfect":
+        ctrl = LinkedController(ctrl, PRESETS[link], seed=seed, dt=core.dt)
     gate = _gate_of(ctrl)
     if gate is not None:
         gate.trace = True
@@ -103,6 +117,15 @@ def record(game_key="assault", kind="bt_safe", model_path=None, seed=0) -> dict:
             "opp_alive": [bool(a) for a in pv.opp_alive],
             "applied": [_vec(a) for a in applied],
             "shield": {"geofence": fired[0], "speed": fired[1]},
+            # What the ground station BELIEVED this tick (None on a perfect
+            # link). Rendering this against the truth is the only way a label
+            # swap or a held pose is visible at all — from inside the controller
+            # a swap looks like a perfectly ordinary observation.
+            "est": (lambda e: None if e is None else {
+                "self": [_vec(p) for p in e["self_pos"]],
+                "opp": [_vec(p) for p in e["opp_pos"]],
+                "swapped": list(e["swapped"]) if e["swapped"] else None,
+            })(getattr(ctrl, "last_estimate", None)),
             "decisions": decisions,
             "min_dist": _num(info["min_dist"]),
             "asset_dist": _num(info["asset_dist"]),
@@ -131,6 +154,8 @@ def record(game_key="assault", kind="bt_safe", model_path=None, seed=0) -> dict:
         "asset": {"pos": _vec(core.asset_position()), "radius": game.asset.radius}
                  if game.has_asset else None,
         "dt": core.dt,                          # seconds per *control* step
+        "link": link,
+        "link_stats": (ctrl.stats() if hasattr(ctrl, "stats") else None),
         "outcome": {"pursuer_win": bool(r.info["pursuer_win"]),
                     "breach": bool(r.info["breach"]),
                     "n_captured": int(r.info["n_captured"]),
@@ -147,6 +172,9 @@ def main(argv=None):
                    choices=["scripted", "rl", "bt", "bt_safe"])
     p.add_argument("--model", default=None)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--link", default="perfect", choices=list(PRESETS),
+                   help="sim-to-real link preset; 'perfect' reproduces the "
+                        "headline results exactly")
     p.add_argument("--out", type=Path, default=None)
     args = p.parse_args(argv)
 
@@ -154,8 +182,10 @@ def main(argv=None):
     if model is None:
         model = ("models/pursuer_dagger.zip" if args.game == "tag"
                  else f"models/{args.game}_dagger.zip")
-    data = record(args.game, args.controller, model, args.seed)
-    out = args.out or Path(f"results/trace_{args.game}_{args.controller}_{args.seed}.json")
+    data = record(args.game, args.controller, model, args.seed, link=args.link)
+    suffix = "" if args.link == "perfect" else f"_{args.link}"
+    out = args.out or Path(
+        f"results/trace_{args.game}_{args.controller}_{args.seed}{suffix}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(data))
     print(f"[trace] {args.game}/{args.controller} seed={args.seed}: "

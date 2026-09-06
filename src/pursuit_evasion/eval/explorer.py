@@ -32,7 +32,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   :root {
     --bg:#0e1116; --panel:#161b22; --line:#30363d; --fg:#c9d1d9; --dim:#8b949e;
     --scripted:#58a6ff; --rl:#f0883e; --applied:#3fb950; --opp:#f85149;
-    --asset:#d29922; --shield:#a371f7;
+    --asset:#d29922; --shield:#a371f7; --est:#79c0ff;
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
@@ -107,6 +107,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
         <span><span class="sw" style="background:var(--opp)"></span>opponents</span>
         <span><span class="sw" style="background:var(--asset)"></span>asset</span>
         <span><span class="sw" style="background:var(--applied)"></span>applied cmd</span>
+        <span id="estLegend" style="display:none"><span class="sw" style="border:1.5px solid var(--est);background:none"></span>believed position (degraded link)</span>
         <span>dashed = the command that controller <em>wanted</em></span>
         <span>dotted ring = capture radius</span>
       </div>
@@ -242,6 +243,31 @@ function drawTop() {
     if (alive) arrow(g, x, y, st.opp_vel[i][0]*s*0.5, -st.opp_vel[i][1]*s*0.5,
                      C("--opp") + "99", [], 1.5);
   });
+
+  /* truth vs BELIEF: on a degraded link, hollow rings mark where the ground
+     station thought each body was, tethered to the truth. A label swap shows
+     as two long crossed tethers — the estimate is spatially perfect and still
+     wrong, which is the whole point of rendering it. */
+  if (st.est) {
+    st.est.opp.forEach((p, i) => {
+      const [ex, ey] = px(p[0], p[1]);
+      const [tx, ty] = px(st.opp[i][0], st.opp[i][1]);
+      if (Math.hypot(ex-tx, ey-ty) > 2) {
+        g.setLineDash([3,3]); g.strokeStyle = C("--est"); g.lineWidth = 1;
+        g.beginPath(); g.moveTo(tx, ty); g.lineTo(ex, ey); g.stroke(); g.setLineDash([]);
+      }
+      const swapped = st.est.swapped && st.est.swapped.includes(i);
+      g.strokeStyle = swapped ? "#f85149" : C("--est"); g.lineWidth = swapped ? 2 : 1.2;
+      g.beginPath(); g.arc(ex, ey, 6, 0, 7); g.stroke();
+      if (swapped) { g.fillStyle = "#f85149"; g.font = "9px monospace";
+                     g.fillText("swap", ex + 8, ey + 10); }
+    });
+    st.est.self.forEach((p, i) => {
+      const [ex, ey] = px(p[0], p[1]);
+      g.strokeStyle = C("--est"); g.lineWidth = 1.2;
+      g.beginPath(); g.arc(ex, ey, 6, 0, 7); g.stroke();
+    });
+  }
 
   st.self.forEach((p, i) => {
     const [x, y] = px(p[0], p[1]), sel = i === agent;
@@ -451,9 +477,11 @@ function render() {
     ? (o.pursuer_win ? "pursuers win" : "evaders survive")
     : (o.breach ? "BREACH — attackers win" : "asset held — defenders win");
   const share = Object.values(d.mode_counts).reduce((a, b) => a + b, 0);
+  const lk = D().link && D().link !== "perfect"
+    ? ` · link ${D().link} (${(D().link_stats||{}).swaps||0} swaps, ${(D().link_stats||{}).dropouts||0} drops)` : "";
   document.getElementById("status").textContent =
     `step ${t+1}/${d.steps.length}  ·  t=${(t*d.dt).toFixed(2)}s  ·  ${win}` +
-    (share ? `  ·  policy drove ${d.mode_counts.rl}/${share} agent-ticks` : "");
+    (share ? `  ·  policy drove ${d.mode_counts.rl}/${share} agent-ticks` : "") + lk;
   /* keep the URL pointing at exactly this moment, so a finding is linkable */
   history.replaceState(null, "", `#${ti}/${t}/${agent}`);
   drawTop(); drawSide(); drawTree(); drawActs(); drawFeats();
@@ -469,6 +497,8 @@ function loadTrace(k) {
   ag.innerHTML = d.steps[0].self
     .map((_, i) => `<option value="${i}">${d.game === "tag" ? "pursuer" : "defender"} ${i}</option>`)
     .join("");
+  document.getElementById("estLegend").style.display =
+    (d.link && d.link !== "perfect") ? "" : "none";
   buildRibbons();
   render();
 }
@@ -488,7 +518,7 @@ function play(on) {
 }
 
 document.getElementById("pick").innerHTML = TRACES
-  .map((d, i) => `<option value="${i}">${d.game} · ${d.controller} · seed ${d.seed}</option>`)
+  .map((d, i) => `<option value="${i}">${d.game} · ${d.controller} · seed ${d.seed}${d.link && d.link !== "perfect" ? " · " + d.link : ""}</option>`)
   .join("");
 document.getElementById("pick").onchange = e => { play(false); loadTrace(+e.target.value); };
 document.getElementById("agent").onchange = e => setAgent(+e.target.value);
@@ -528,6 +558,10 @@ def main(argv=None):
                    help="recorded on the same seed, so the dropdown is an A/B")
     p.add_argument("--model", default=None)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--link", nargs="+", default=["perfect"],
+                   help="record each controller under each of these link presets "
+                        "(same seed, same corruption) — e.g. --link perfect "
+                        "vicon_busy puts truth-vs-belief side by side")
     p.add_argument("--out", type=Path, default=None)
     args = p.parse_args(argv)
 
@@ -535,12 +569,16 @@ def main(argv=None):
                            else f"models/{args.game}_dagger.zip")
     traces = []
     for kind in args.controllers:
-        tr = record(args.game, kind, model, args.seed)
-        print(f"  [{kind}] {len(tr['steps'])} steps, modes={tr['mode_counts']}, "
-              f"outcome={tr['outcome']}")
-        traces.append(tr)
+        for link in args.link:
+            tr = record(args.game, kind, model, args.seed, link=link)
+            tag = f"{kind}" + ("" if link == "perfect" else f"@{link}")
+            print(f"  [{tag}] {len(tr['steps'])} steps, modes={tr['mode_counts']}, "
+                  f"outcome={tr['outcome']}, link={tr['link_stats']}")
+            traces.append(tr)
 
-    dest = args.out or Path(f"results/explorer_{args.game}_{args.seed}.html")
+    suffix = "" if args.link == ["perfect"] else "_" + "_".join(
+        l for l in args.link if l != "perfect")
+    dest = args.out or Path(f"results/explorer_{args.game}_{args.seed}{suffix}.html")
     build(traces, dest)
     kb = dest.stat().st_size / 1024
     print(f"\n[explorer] {len(traces)} traces -> {dest} ({kb:.0f} KB, self-contained)")
