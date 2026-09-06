@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ORT_VERSION: 1.29.0 # keep in step with the onnxruntime pin in uv.lock
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync Python environment
+        run: uv sync
+
+      - name: Python tests
+        run: uv run pytest -q
+
+      - name: Generated arenas are in sync
+        run: uv run python -m pursuit_evasion.env.dump_arenas --check
+
+      - name: Fetch ONNX Runtime
+        run: |
+          curl -sSfL -o ort.tgz \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          tar xzf ort.tgz
+          echo "ORT_ROOT=$PWD/onnxruntime-linux-x64-${ORT_VERSION}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$PWD/onnxruntime-linux-x64-${ORT_VERSION}/lib" >> "$GITHUB_ENV"
+
+      - name: Configure C++ runtime
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q ninja-build
+          cmake -S cpp -B cpp/build -G Ninja -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DORT_INCLUDE="$ORT_ROOT/include" -DORT_LIB="$ORT_ROOT/lib/libonnxruntime.so"
+
+      - name: Build C++ runtime
+        run: ninja -C cpp/build
+
+      - name: C++ unit tests
+        run: ./cpp/build/pe_tests
+
+      - name: Cross-runtime parity
+        run: |
+          uv run pe-parity | tee /tmp/parity_py.txt
+          (cd cpp && ./build/pe_run --parity) | tee /tmp/parity_cpp.txt
+          uv run python scripts/check_parity.py /tmp/parity_py.txt /tmp/parity_cpp.txt

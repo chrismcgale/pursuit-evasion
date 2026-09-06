@@ -24,8 +24,8 @@ message(STATUS "MuJoCo include:  ${MUJOCO_ROOT}/include")
 find_package(onnxruntime QUIET)
 if(NOT onnxruntime_FOUND)
   message(STATUS "onnxruntimeConfig not found; falling back to manual paths")
-  set(ORT_INCLUDE /usr/include/onnxruntime)
-  set(ORT_LIB /usr/lib/libonnxruntime.so)
+  set(ORT_INCLUDE /usr/include/onnxruntime CACHE PATH "onnxruntime include dir")
+  set(ORT_LIB /usr/lib/libonnxruntime.so CACHE FILEPATH "libonnxruntime.so path")
 endif()
 
 # --- BehaviorTree.CPP (industry-standard BT runtime; opens in Groot2) ---------
