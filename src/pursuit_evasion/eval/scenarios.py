@@ -76,13 +76,16 @@ class BatchReport:
         r = self.records
         n = max(len(r), 1)
         wins = [x for x in r if x.win]
+        # a defence-game win can arrive by timeout or spent missiles, with no
+        # "both neutralised" step to report — only average the wins that have one
+        win_steps = [x.steps_to_all for x in wins if x.steps_to_all is not None]
         first_times = [x.time_to_first for x in r if x.time_to_first is not None]
         return {
             "label": self.label,
             "n": len(r),
             "win_rate": sum(x.win for x in r) / n,
             "mean_captures": sum(x.n_captured for x in r) / n,
-            "mean_steps_to_win": float(np.mean([x.steps_to_all for x in wins])) if wins else float("nan"),
+            "mean_steps_to_win": float(np.mean(win_steps)) if win_steps else float("nan"),
             "mean_time_to_first": float(np.mean(first_times)) if first_times else float("nan"),
             "mean_min_separation": float(np.mean([x.min_separation for x in r])),
             "geofence_viol": sum(x.geofence_viol for x in r),

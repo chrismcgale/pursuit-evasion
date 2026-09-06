@@ -146,3 +146,24 @@ def test_axis_metadata_is_complete():
     for axis, spec in AXES.items():
         assert spec["why"].strip() and spec["label"].strip(), axis
         assert spec["field"] in type(axis_profiles(axis)[0][1]).__dataclass_fields__
+
+
+# ---- aggregation over defence-game outcomes --------------------------------
+
+def test_aggregate_survives_a_win_with_no_capture_step():
+    """A defender can win by timeout or by both missiles going spent — win=True
+    with steps_to_all=None. First hit on the assault control_rate axis at
+    dt=100 ms; mean_steps_to_win must average only the wins that have a step."""
+    from pursuit_evasion.eval.scenarios import BatchReport, EpisodeRecord
+
+    def rec(win, steps):
+        return EpisodeRecord(seed=0, win=win, n_captured=2 if steps else 0,
+                             steps_to_all=steps, time_to_first=None,
+                             min_separation=1.0, geofence_viol=0, speed_viol=0,
+                             starts={})
+
+    agg = BatchReport("x", [rec(True, 120), rec(True, None), rec(False, None)]).aggregate()
+    assert agg["mean_steps_to_win"] == 120.0
+    # all wins step-less (pure timeout defence) must not crash either
+    agg = BatchReport("x", [rec(True, None)]).aggregate()
+    assert np.isnan(agg["mean_steps_to_win"])
