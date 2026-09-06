@@ -42,11 +42,11 @@ GATE_CONDITION(ThreatClose, f.dist_nearest < t.evader_danger)
 GATE_CONDITION(ThreatClosingFast, f.closing_rate > t.closing_fast)
 // Defender-side predicates (mirror gating.py:_defender_predicates). The scripted
 // law has no answer when no intercept exists — it parks on a static gate point —
-// so that is where the learned branch earns its keep. Debounced: infeasibility
-// must persist infeasible_persist consecutive ticks, else a degraded estimate
-// hands control to the policy exactly when it is least trustworthy (the
-// measured escalation anti-pattern, 16%→22% handover as the link degrades).
-GATE_CONDITION(InterceptInfeasible, f.infeasible_ticks >= t.infeasible_persist)
+// so that is where the learned branch earns its keep. The handover is immediate
+// by measurement: debouncing it k ticks was a dose-response loss (0.71/0.59/0.49
+// at perfect link for k=1/2/3) recovering nothing under latency — see
+// _defender_predicates' docstring in gating.py for the full table.
+GATE_CONDITION(InterceptInfeasible, !f.intercept_feasible)
 GATE_CONDITION(ThreatImminent, f.threat_time < t.threat_imminent)
 GATE_CONDITION(DefenderCloseQuarters, f.dist_nearest < t.defender_close)
 GATE_CONDITION(CleanInterceptFeasible, f.intercept_feasible && f.intercept_ahead)

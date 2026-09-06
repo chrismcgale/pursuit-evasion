@@ -24,10 +24,6 @@ struct AgentFeatures {
   double threat_time = std::numeric_limits<double>::infinity();  // secs until it is reached
   bool intercept_feasible = true;   // a positive lead-intercept solution exists
   double fuel = 1.0;                // own remaining burn fraction
-  // Consecutive gate ticks intercept_feasible has been false. Not computable
-  // from one view: GatedController maintains the per-agent streak and stamps it
-  // in before ticking, so a one-tick infeasibility glitch can be debounced.
-  int infeasible_ticks = 0;
 };
 
 // Exact mirror of features.py:_pairwise / agent_features (others == opponents).

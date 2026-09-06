@@ -131,24 +131,23 @@ TEST_CASE("drones never go spent — they have no finite burn") {
 
 // ------------------------------------------------------------------ gate nodes
 
-TEST_CASE("InterceptInfeasible fires only once the infeasibility has persisted") {
+TEST_CASE("InterceptInfeasible fires exactly when no intercept solution exists") {
   auto f = obj_base();
-  GateThresholds t;
   f.intercept_feasible = false;
-  f.infeasible_ticks = t.infeasible_persist - 1;  // one tick short of the debounce
-  CHECK(route("gate_defenders.xml", f) == "scripted");
-  f.infeasible_ticks = t.infeasible_persist;
   CHECK(route("gate_defenders.xml", f) == "rl");
   f.intercept_feasible = true;
-  f.infeasible_ticks = 0;
   CHECK(route("gate_defenders.xml", f) == "scripted");
 }
 
-// The controller-level half of the debounce (Python mirror:
-// test_games.py::test_defender_handover_requires_persistent_infeasibility):
-// the per-agent streak must accumulate across act() calls, reset on a feasible
-// tick, and clear on reset(). The missile receding at 11 m/s from a 7.5 m/s
-// defender has no positive lead-intercept root — genuinely infeasible.
+// Pins the negative result of the debounce experiment (Python mirror:
+// test_games.py::test_defender_handover_is_immediate): requiring infeasibility
+// to persist k ticks before handover was a dose-response LOSS on the assault
+// latency axis (bt_gated 0.71/0.59/0.49 at perfect link for k=1/2/3, nothing
+// recovered under latency), because genuine infeasible regimes are 20-30-tick
+// streaks that do not flicker — a debounce is pure delay against an 11 m/s
+// missile. The first infeasible tick must hand over immediately. The missile
+// receding at 11 m/s from a 7.5 m/s defender has no positive lead-intercept
+// root — genuinely infeasible.
 namespace {
 struct ConstCtl : Controller {
   double v;
@@ -176,25 +175,17 @@ TeamView defender_view(double missile_vel_x) {
 }
 }  // namespace
 
-TEST_CASE("defender handover requires persistent infeasibility") {
+TEST_CASE("defender handover is immediate on the first infeasible tick") {
   ConstCtl scripted(0.25), rl(-0.75);
-  GateThresholds t;
   GatedController gc(Team::Pursuers, &scripted, &rl,
-                     std::string(PE_TREES_DIR) + "/gate_defenders.xml", t);
+                     std::string(PE_TREES_DIR) + "/gate_defenders.xml");
   TeamView infeasible = defender_view(11.0), feasible = defender_view(-11.0);
   REQUIRE_FALSE(agent_features(infeasible, 0).intercept_feasible);
   REQUIRE(agent_features(feasible, 0).intercept_feasible);
 
-  for (int k = 0; k < t.infeasible_persist - 1; ++k)  // 2 ticks: stay scripted
-    CHECK(gc.act(infeasible)[0] == 0.25);
-  gc.act(feasible);                                   // feasible tick resets
-  for (int k = 0; k < t.infeasible_persist - 1; ++k)
-    CHECK(gc.act(infeasible)[0] == 0.25);
-  CHECK(gc.act(infeasible)[0] == -0.75);              // k-th consecutive: hand over
+  CHECK(gc.act(feasible)[0] == 0.25);     // feasible: scripted
+  CHECK(gc.act(infeasible)[0] == -0.75);  // first infeasible tick: RL
   CHECK(gc.mode_counts["rl"] == 1);
-
-  gc.reset();                                         // reset() clears the streak
-  CHECK(gc.act(infeasible)[0] == 0.25);
 }
 
 // This is the finding, pinned as a test: the tag instinct "close quarters is

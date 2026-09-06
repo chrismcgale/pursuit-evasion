@@ -318,11 +318,7 @@ def test_defender_gate_hands_off_when_intercept_is_infeasible():
     name, pred, mode = _PREDICATES["defender"]()[0]
     f = agent_features(PursuitEvasionCore(seed=0, game="assault").reset(seed=0)[0], 0)
     f.intercept_feasible = False
-    f.infeasible_ticks = thr.infeasible_persist
     assert name == "intercept_infeasible" and pred(f, thr) and mode == MODE_RL
-    # one tick short of the debounce must NOT hand over
-    f.infeasible_ticks = thr.infeasible_persist - 1
-    assert not pred(f, thr)
 
 
 class _ConstController:
@@ -358,36 +354,37 @@ def _defender_view(missile_vel_x):
         game="assault", asset_pos=np.array([-5.0, 0.0, 3.0]))
 
 
-def test_defender_handover_requires_persistent_infeasibility():
-    """Pins the escalation-anti-pattern fix (ROADMAP #3, REVIEW #13).
+def test_defender_handover_is_immediate():
+    """Pins the negative result of the debounce experiment (ROADMAP #3).
 
-    Under a degraded link a single bad estimate can make the intercept look
-    infeasible for a tick; the raw predicate handed control to the policy at
-    exactly that moment (handover share rose 16%→22% as the link degraded).
-    The gate must sit out `infeasible_persist` consecutive infeasible ticks
-    before routing to RL, and a feasible tick must reset the streak.
-    The C++ half lives in cpp/tests/test_games.cpp.
+    Requiring intercept infeasibility to persist k consecutive ticks before
+    handing over — the designed fix for the "escalates under degradation"
+    observation — was measured and LOST, as a clean dose-response on the
+    assault latency axis (n=150, paired seeds+corruption, bt_gated win rate):
+
+        latency:      0 ms   20 ms   40 ms   60 ms
+        k=1 (ship)    0.71    0.51    0.21    0.07
+        k=2           0.59    0.37    0.19    0.06
+        k=3           0.49    0.35    0.19    0.06
+
+    Traces show genuine infeasible regimes are 20-30-tick streaks that do not
+    flicker at perfect link, so a debounce is pure delay — and (k-1) ticks of
+    delay against an 11 m/s missile decide episodes. The first infeasible tick
+    must therefore hand over immediately. Do not re-add a persistence
+    threshold without beating this table. C++ mirror in
+    cpp/tests/test_games.cpp.
     """
-    from pursuit_evasion.bt.gating import GateThresholds
     from pursuit_evasion.env.core import TEAM_PURSUERS
 
-    thr = GateThresholds()
     gc = GatedController(TEAM_PURSUERS, _ConstController(0.25),
-                         _ConstController(-0.75), thresholds=thr, game="assault")
+                         _ConstController(-0.75), game="assault")
     infeasible, feasible = _defender_view(11.0), _defender_view(-11.0)
     assert not agent_features(infeasible, 0).intercept_feasible
     assert agent_features(feasible, 0).intercept_feasible
 
-    for tick in range(thr.infeasible_persist - 1):        # 2 ticks: stay scripted
-        assert gc.act(infeasible)[0] == 0.25, f"handed over at tick {tick}"
-    gc.act(feasible)                                      # feasible tick resets
-    for tick in range(thr.infeasible_persist - 1):
-        assert gc.act(infeasible)[0] == 0.25, f"streak survived the reset (tick {tick})"
-    assert gc.act(infeasible)[0] == -0.75                 # k-th consecutive: hand over
+    assert gc.act(feasible)[0] == 0.25                    # feasible: scripted
+    assert gc.act(infeasible)[0] == -0.75                 # first infeasible tick: RL
     assert gc.mode_counts[MODE_RL] == 1
-
-    gc.reset()                                            # reset() clears the streak
-    assert gc.act(infeasible)[0] == 0.25
 
 
 def test_defender_gate_does_not_hand_close_quarters_to_the_policy():

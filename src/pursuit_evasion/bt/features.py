@@ -35,11 +35,6 @@ class AgentFeatures:
     threat_time: float = float("inf")       # seconds until the nearest threat reaches it
     intercept_feasible: bool = True         # a positive lead-intercept solution exists
     fuel: float = 1.0                       # own remaining burn fraction
-    # Consecutive gate ticks intercept_feasible has been False for this agent.
-    # Not computable from a single view: GatedController (the one stateful spot
-    # in the gate path) maintains the streak and stamps it in before ticking, so
-    # a one-tick infeasibility glitch from a degraded estimate can be debounced.
-    infeasible_ticks: int = 0
 
 
 def _pairwise(view: TeamView, i: int, others_pos, others_vel, others_alive):

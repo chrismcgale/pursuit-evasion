@@ -23,12 +23,13 @@
   ThreatImminent / DefenderCloseQuarters stay registered in bt_nodes.cpp so the
   ablation is reproducible from Groot2 by editing this file alone.
 
-  InterceptInfeasible is DEBOUNCED: it fires only once the infeasibility has
-  persisted `infeasible_persist` consecutive gate ticks (default 3; the
-  GatedController maintains the per-agent streak). The raw predicate escalated
-  to the policy MORE as the link degraded (16% -> 22% handover share) — a
-  feasibility computed from a stale estimate reads as "no solution exists"
-  exactly when the policy's own observations are least trustworthy.
+  The handover is IMMEDIATE, and that is measured too: debouncing it (fire
+  only after k consecutive infeasible ticks) was a clean dose-response loss —
+  bt_gated 0.71/0.59/0.49 at perfect link for k=1/2/3, recovering nothing at
+  any latency level. Genuine infeasible regimes are 20-30-tick streaks that do
+  not flicker; a debounce is pure delay against an 11 m/s missile. Do not
+  re-add a persistence threshold without beating that table (details in
+  gating.py:_defender_predicates).
 -->
 <root BTCPP_format="4" main_tree_to_execute="GateDefenders">
   <BehaviorTree ID="GateDefenders">
