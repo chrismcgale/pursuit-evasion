@@ -142,6 +142,27 @@ XML + a gate tree.
 
 ## Changelog / decisions (newest first)
 
+- **2026-09-06 (later)** **Debounce experiment: the escalation "anti-pattern"
+  was a symptom, not a cost — fix built, measured, reverted.** ROADMAP #3
+  (require `intercept_infeasible` to persist k ticks before handover) swept at
+  k∈{1,2,3} on the assault latency axis (n=150, paired): clean dose-response
+  **loss** — bt_gated 0.71/0.59/0.49 at perfect link, k3−k1 = −0.22✓ at 0 ms,
+  nothing recovered at any latency. Traced mechanism: genuine infeasible
+  regimes are 20-30-tick streaks that never flicker at perfect link, so a
+  debounce is pure delay and (k−1)×60 ms against an 11 m/s missile decides
+  episodes. Immediate handover is now pinned by
+  `test_defender_handover_is_immediate` (both runtimes); k-sweep artifacts in
+  `results/robust_assault_latency_{debounce_k3,k2}.json`. Semantics restored
+  verbatim (aggregate parity reproduces win=0.70, viol 19/238 exactly).
+  Same session: defender ablation replicated at 150×2 (+0.17 holds, REVIEW
+  #1 closed); assault `control_rate` axis run (gate edge at every period,
+  dt=20 ms saturates all arms to 1.00; REVIEW #5 closed) — which exposed and
+  fixed an `aggregate()` crash on defence-game wins with no capture step
+  (timeout/spent wins, `eval/scenarios.py`, pinned in `test_robustness`); CI
+  added (`.github/workflows/ci.yml` + `scripts/check_parity.py`) but **no
+  remote yet** — repo creation/push needs Chris's explicit go, blocked by
+  permissions. `main` branch now exists; work merged there.
+
 - **2026-09-06** **Sim-to-real link layer + robustness sweep landed; two
   headline reversals.** `env/link.py` (Vicon/ELRS/whoop failure modes as a
   controller wrapper, PERFECT pinned bit-identical) + `pe-robust` (Wilson CIs,

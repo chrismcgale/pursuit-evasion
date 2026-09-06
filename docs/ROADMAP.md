@@ -13,25 +13,32 @@ and what is broken.*
    escalation anti-pattern, swap immunity, one-stale-frame, control-rate
    artifact. Regenerate assault plots (`pe-robust --game assault --axis all
    --episodes 150 --plot` re-reads nothing; or plot from existing JSONs).
-2. **Re-run the defender ablation at 150×2 seed blocks** (`pe-ablate --game
-   assault --side pursuers`) — the headline +0.17 is n=40 on one block.
-3. **Fix the gate escalation anti-pattern**, then re-sweep latency:
-   require `intercept_infeasible` to persist k consecutive ticks before
-   handover (k≈3), in *both* runtimes + parity. Hypothesis: recovers part of
-   the gate's advantage between 20-60 ms. This is the single best follow-up
-   experiment — it turns the anti-pattern finding into a design contribution.
+2. ~~Re-run the defender ablation at 150×2 seed blocks~~ **Done 2026-09-06**:
+   +0.17 replicates (0.70/0.68 vs 0.54/0.43). REVIEW #1.
+3. ~~Fix the gate escalation anti-pattern~~ **Done 2026-09-06 — hypothesis
+   falsified and the fix reverted.** k∈{1,2,3} persistence swept on the
+   latency axis: dose-response loss (0.71/0.59/0.49 at perfect link),
+   nothing recovered at 20-60 ms. Genuine infeasibility doesn't flicker
+   (20-30-tick streaks, traced), so persistence is pure delay. The
+   escalation was a symptom; immediate handover is load-bearing and now
+   pinned by `test_defender_handover_is_immediate` in both runtimes. The
+   negative result IS the design contribution — writeup §robustness should
+   carry the k-table.
 4. **Gate-value vs policy-quality curve** — retention of DAgger checkpoints
    exists in `models/history.json` lineage; sweep gate advantage as a function
    of policy strength. Falsifiable prediction: gated-minus-scripted stays flat
    (the gain is regime coverage, not policy quality) while policy-only rises.
-5. Assault `control_rate` axis (missing, see REVIEW #5). Consider whether tag's
-   published baseline should be restated at a defensible control rate.
+5. ~~Assault `control_rate` axis~~ **Done 2026-09-06** (REVIEW #5): gate edge
+   holds at every period; dt=20 ms saturates every arm to 1.00. Still open
+   from this item: whether tag's published baseline should be restated at a
+   defensible control rate.
 6. **C++ runtime timing evidence**: per-tick latency histogram for BT tick /
    ONNX inference / safety filter in `pe_run` (~1 h; the strongest artifact for
    a robotics reader, and it feeds the ground-station budget in Stage 3).
 7. Groot2: screenshot of the shipped trees + live-monitoring hookup.
-8. Repo hygiene: CI (pytest + cpp tests + parity + `dump_arenas --check`),
-   remote, robustness figures in the writeup, explorer GIF in the README.
+8. Repo hygiene: ~~CI~~ (added 2026-09-06, untested — no remote), **remote
+   (blocked on Chris: repo creation + push needs explicit approval)**,
+   robustness figures in the writeup, explorer GIF in the README.
 
 ## Stage 1 — robustness layer hardening (mostly done, gaps remain)
 
@@ -84,9 +91,13 @@ and what is broken.*
 
 ## Standing questions
 
-- Does the escalation fix (task 3) restore the gate at realistic latency? If
-  not, the honest conclusion is "ship scripted + shield on real hardware" and
-  the project's story becomes *how the sim found that out* — which is fine.
+- ~~Does the escalation fix (task 3) restore the gate at realistic latency?~~
+  **Answered 2026-09-06: no — it destroys the gate at low latency and restores
+  nothing.** Refined conclusion: the gate earns its +0.23 below ~30 ms of
+  state latency and the shield carries everything past that, so the hardware
+  recipe at whoop scale (budget ≈50 ms, well-run Vicon ≈10-20 ms) is
+  **gate + shield if the volume is clean, scripted + shield if it is not** —
+  and the sim can tell those apart per-volume with one latency sweep.
 - Is tag worth keeping at whoop scale, or do the defence games (where the gate
   earns its keep) become the only story?
 - 250 Hz ELRS vs 500 Hz: does the uplink one-stale-frame result (REVIEW #6)

@@ -42,10 +42,18 @@ Core claims, each measured not assumed:
      are not — H2 resolved in the tree's favour, H1 backwards.
    - `latency_budget = capture_radius/closing_speed` (assault 76 ms) predicts
      the floor on every latency curve without simulation. Whoop-scale ≈ 50 ms.
-   - **Escalation anti-pattern (mechanism, traced):** handover rises 16%→22%
-     as the link degrades — `intercept_feasible` computed from a bad estimate
-     reads as "no solution exists", so the tree hands over to the policy
-     exactly when the policy is least trustworthy. Unfixed; see ROADMAP #3.
+   - **Escalation "anti-pattern" — resolved as a symptom, not a cost.**
+     Handover rises 16%→22% as the link degrades (`intercept_feasible` from a
+     bad estimate reads as "no solution exists"). The designed fix — require
+     infeasibility to persist k ticks — was built, measured and **reverted**:
+     clean dose-response loss (bt_gated 0.71/0.59/0.49 at perfect link for
+     k=1/2/3, paired Δ(k3−k1) −0.22✓, recovering nothing at any latency).
+     Traces: genuine infeasible regimes are 20–30-tick streaks that don't
+     flicker, so a debounce is pure delay against an 11 m/s missile. Immediate
+     handover is load-bearing; the latency collapse belongs to the *policy*,
+     and the shield is the mitigation. Pinned by
+     `test_defender_handover_is_immediate` (both runtimes); artifacts
+     `results/robust_assault_latency_{debounce_k3,k2}.json`.
    - **One stale command frame forfeits assault** (0.71→0.07) at dt=60 ms.
    - **Tag's baseline is partly a clock artifact**: scripted 0.60→0.88 as
      control period drops 100→20 ms (substep capture held fixed) while the
@@ -55,9 +63,12 @@ Core claims, each measured not assumed:
 ## Known issues
 
 **Data / statistics**
-1. **Defender ablation is n=40, one seed block** (`ablation_assault_pursuers.json`)
-   — the least-replicated number the writeup rests on. Attacker side got 150×2.
-   Re-run to match before leaning on it.
+1. ~~Defender ablation is n=40, one seed block~~ **Resolved 2026-09-06**:
+   re-run at 150×2 blocks — scripted 0.54/0.43, +`intercept_infeasible`
+   0.70/0.68, policy-only 0.03/0.09. The headline +0.17 replicates.
+   (`clean_intercept` bought exactly 0.00 in both blocks, as expected — it
+   routes to scripted, same as the fall-through; it exists for Groot2
+   legibility only.)
 2. **Robustness sweeps use seed block 20000+**, headline tables use 10000+.
    Cross-block variance is visible (tag scripted 0.56 vs 0.455; tag bt_gated
    0.17 vs 0.19). Robustness tables are internally consistent (paired) but not
@@ -67,9 +78,14 @@ Core claims, each measured not assumed:
    states it; any new policy comparison must use held-out seeds.
 4. `results/` is gitignored: every artifact is regenerate-on-demand. Logs of
    the robustness runs are in `results/robust_{assault,tag}.log`.
-5. **Assault `control_rate` axis was never run** (axis added after the sweep
-   launched; only tag has it). One command: `pe-robust --game assault --axis
-   control_rate --episodes 150 --plot`.
+5. ~~Assault `control_rate` axis was never run~~ **Resolved 2026-09-06**
+   (`robust_assault_control_rate.json`): gate edge significant at every
+   period — +0.20/+0.23/+0.16/+0.08 for dt=40/60/100/160 ms — and at
+   dt=20 ms assault saturates to 1.00 for *every* arm (the defence game gets
+   easy for everyone at fast control, unlike tag where only scripted rises).
+   Running it exposed and fixed a real crash: `aggregate()` died on a
+   defence-game win with no capture step (timeout/spent-out win), first hit
+   at dt=100 ms. Pinned in `test_robustness`.
 
 **Modelling honesty**
 6. `cmd_latency` is whole-frame quantised at dt=60 ms (10/20 ms→0 ticks,
@@ -95,9 +111,14 @@ Core claims, each measured not assumed:
 12. **The safety filter has no inter-agent separation** — geofence + speed cap
     only. For 2-4 real airframes in one room this is the *first* missing
     constraint, and "capture" currently commands near-contact.
-13. The gate reads raw features with no estimate-quality input (see escalation
-    anti-pattern above). The fix is designed, not built: require infeasibility
-    to persist k ticks, or suppress handover under high innovation.
+13. The gate reads raw features with no estimate-quality input. The
+    k-tick-persistence fix was built, measured and **reverted** (see the
+    escalation bullet above — it loses everywhere). The remaining designed-not-
+    built idea is innovation-based suppression (hold handover when the track is
+    jumpy), which unlike the debounce would leave perfect-link behaviour
+    untouched — but the burden of proof is now the k-sweep table, and the
+    measured story ("the shield, not the gate, carries degradation") may simply
+    be the answer.
 14. `LinkedController` history buffer caps at 64 views; fine for current
     latencies, silently wrong if anyone sweeps >3.8 s.
 15. Explorer truth-vs-belief renders for the pursuer-slot side only (matches
@@ -108,7 +129,10 @@ Core claims, each measured not assumed:
     measured and what's written. All data is in `results/robust_*.json` + this
     file's summary; plots exist for tag only (`--plot` wasn't set on the
     detached assault run; regenerate is cheap).
-17. No CI, no git remote, no figures in the writeup (tables only), no GIF.
+17. ~~No CI~~ CI added 2026-09-06 (`.github/workflows/ci.yml`: pytest, arena
+    check, C++ build+tests, cross-runtime parity via `scripts/check_parity.py`)
+    — but **no git remote yet** (repo creation needs Chris's go), so it has
+    never run. Still missing: figures in the writeup (tables only), GIF.
 18. Two stale explorer artifacts predate the est-rendering (`explorer_assault_0`,
     `explorer_tag_1`); regenerate if shown.
 
