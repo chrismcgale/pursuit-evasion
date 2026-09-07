@@ -38,7 +38,7 @@ jobs:
 
       - name: Configure C++ runtime
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q ninja-build
+          sudo apt-get update -q && sudo apt-get install -y -q ninja-build libzmq3-dev
           cmake -S cpp -B cpp/build -G Ninja -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DORT_INCLUDE="$ORT_ROOT/include" -DORT_LIB="$ORT_ROOT/lib/libonnxruntime.so"
 
