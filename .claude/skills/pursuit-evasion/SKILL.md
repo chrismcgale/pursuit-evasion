@@ -159,9 +159,13 @@ XML + a gate tree.
   dt=20 ms saturates all arms to 1.00; REVIEW #5 closed) — which exposed and
   fixed an `aggregate()` crash on defence-game wins with no capture step
   (timeout/spent wins, `eval/scenarios.py`, pinned in `test_robustness`); CI
-  added (`.github/workflows/ci.yml` + `scripts/check_parity.py`) but **no
-  remote yet** — repo creation/push needs Chris's explicit go, blocked by
-  permissions. `main` branch now exists; work merged there.
+  added (`.github/workflows/ci.yml` + `scripts/check_parity.py`) and, after
+  Chris's go, private repo `chrismcgale/pursuit-evasion` created — **CI green
+  on the first real run** (needed `libzmq3-dev` for BT.CPP's Groot2
+  publisher; ORT 1.29.0 release tarball + `-DORT_INCLUDE/-DORT_LIB` works;
+  parity holds on GCC 13/foreign hardware). Local `origin` is SSH via
+  YubiKey; headless pushes:
+  `git -c credential.helper='!gh auth git-credential' push https://...`.
 
 - **2026-09-06** **Sim-to-real link layer + robustness sweep landed; two
   headline reversals.** `env/link.py` (Vicon/ELRS/whoop failure modes as a

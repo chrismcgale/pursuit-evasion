@@ -129,10 +129,14 @@ Core claims, each measured not assumed:
     measured and what's written. All data is in `results/robust_*.json` + this
     file's summary; plots exist for tag only (`--plot` wasn't set on the
     detached assault run; regenerate is cheap).
-17. ~~No CI~~ CI added 2026-09-06 (`.github/workflows/ci.yml`: pytest, arena
-    check, C++ build+tests, cross-runtime parity via `scripts/check_parity.py`)
-    — but **no git remote yet** (repo creation needs Chris's go), so it has
-    never run. Still missing: figures in the writeup (tables only), GIF.
+17. ~~No CI, no git remote~~ **Resolved 2026-09-06**: private repo at
+    `github.com/chrismcgale/pursuit-evasion`, CI green on ubuntu-latest
+    (pytest, arena check, C++ build+tests against fetched ORT 1.29.0,
+    cross-runtime parity via `scripts/check_parity.py` — parity also holds
+    under GCC 13 on foreign hardware). Note: local `origin` stays SSH
+    (YubiKey); pushes without the key use
+    `git -c credential.helper='!gh auth git-credential' push https://...`.
+    Still missing: figures in the writeup (tables only), GIF.
 18. Two stale explorer artifacts predate the est-rendering (`explorer_assault_0`,
     `explorer_tag_1`); regenerate if shown.
 

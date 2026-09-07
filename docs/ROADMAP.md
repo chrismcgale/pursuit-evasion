@@ -36,9 +36,9 @@ and what is broken.*
    ONNX inference / safety filter in `pe_run` (~1 h; the strongest artifact for
    a robotics reader, and it feeds the ground-station budget in Stage 3).
 7. Groot2: screenshot of the shipped trees + live-monitoring hookup.
-8. Repo hygiene: ~~CI~~ (added 2026-09-06, untested — no remote), **remote
-   (blocked on Chris: repo creation + push needs explicit approval)**,
-   robustness figures in the writeup, explorer GIF in the README.
+8. Repo hygiene: ~~CI~~ ~~remote~~ (done 2026-09-06: private
+   `chrismcgale/pursuit-evasion`, CI green including cross-runtime parity).
+   Remaining: robustness figures in the writeup, explorer GIF in the README.
 
 ## Stage 1 — robustness layer hardening (mostly done, gaps remain)
 
