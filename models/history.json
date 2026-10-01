@@ -1,0 +1,27 @@
+[
+  {
+    "gen": 0,
+    "rl_pursuer_vs_scripted_evader": 0.0,
+    "scripted_pursuer_vs_rl_evader": 1.0
+  },
+  {
+    "gen": 1,
+    "rl_pursuer_vs_scripted_evader": 0.0,
+    "scripted_pursuer_vs_rl_evader": 1.0
+  },
+  {
+    "gen": 2,
+    "rl_pursuer_vs_scripted_evader": 0.0,
+    "scripted_pursuer_vs_rl_evader": 1.0
+  },
+  {
+    "gen": 3,
+    "rl_pursuer_vs_scripted_evader": 0.0,
+    "scripted_pursuer_vs_rl_evader": 1.0
+  },
+  {
+    "gen": 4,
+    "rl_pursuer_vs_scripted_evader": 0.0,
+    "scripted_pursuer_vs_rl_evader": 1.0
+  }
+]

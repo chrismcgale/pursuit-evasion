@@ -4,10 +4,13 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# Models / artifacts (regenerate with pe-train / export_onnx)
-models/
+# Models: the shipped checkpoints in models/ ARE committed (~3 MB) — every
+# headline number and the CI gate-parity check depend on them. Anything else
+# matching these patterns is a scratch artifact.
 *.onnx
 *.zip
+!models/*.onnx
+!models/*.zip
 results/
 *.mp4
 runs/
