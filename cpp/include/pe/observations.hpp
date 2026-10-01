@@ -27,25 +27,28 @@ inline std::vector<float> build_team_obs(const TeamView& v) {
   o.reserve(obs_dim(n_self, n_opp, v.has_asset));
 
   auto push = [&](double val) { o.push_back((float)clamp(val, -5.0, 5.0)); };
-  auto push3 = [&](Vec3 a, double s) { push(a.x * s); push(a.y * s); push(a.z * s); };
+  // DIVIDE, as numpy does (`x / L`). Multiplying by a precomputed reciprocal is
+  // off by an ulp often enough that a long tag chase through the gate drifts
+  // (measured: tag bt_safe parity failed on 3/5 starts until this matched).
+  auto push3 = [&](Vec3 a, double d) { push(a.x / d); push(a.y / d); push(a.z / d); };
 
   push(v.time_frac * 2.0 - 1.0);
   for (int i = 0; i < n_self; ++i) {
-    push3(v.self_pos[i], 1.0 / L);
-    push3(v.self_vel[i], 1.0 / vmax);
+    push3(v.self_pos[i], L);
+    push3(v.self_vel[i], vmax);
     push(v.self_alive[i] ? 1.0 : -1.0);
   }
   for (int i = 0; i < n_self; ++i) {
     for (int j = 0; j < n_opp; ++j) {
-      push3(v.opp_pos[j] - v.self_pos[i], 1.0 / (2.0 * L));
-      push3(v.opp_vel[j] - v.self_vel[i], 1.0 / ovmax);
+      push3(v.opp_pos[j] - v.self_pos[i], 2.0 * L);
+      push3(v.opp_vel[j] - v.self_vel[i], ovmax);
       push(v.opp_alive[j] ? 1.0 : -1.0);
     }
   }
   if (v.has_asset) {
     for (int i = 0; i < n_self; ++i) {
-      push3(v.asset_pos - v.self_pos[i], 1.0 / (2.0 * L));
-      push3(v.asset_vel - v.self_vel[i], 1.0 / vmax);
+      push3(v.asset_pos - v.self_pos[i], 2.0 * L);
+      push3(v.asset_vel - v.self_vel[i], vmax);
       const double fuel = i < (int)v.self_fuel.size() ? v.self_fuel[i] : 1.0;
       push(fuel * 2.0 - 1.0);
     }

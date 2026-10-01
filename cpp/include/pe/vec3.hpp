@@ -17,6 +17,10 @@ inline Vec3 operator+(Vec3 a, Vec3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}
 inline Vec3 operator-(Vec3 a, Vec3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 inline Vec3 operator*(Vec3 a, double s) { return {a.x * s, a.y * s, a.z * s}; }
 inline Vec3 operator*(double s, Vec3 a) { return a * s; }
+// Componentwise division. Use it wherever numpy writes `v / n`: `v * (1.0 / n)`
+// is NOT the same number (off by an ulp in a fraction of cases), and a gated
+// 500-step tag chase amplifies one ulp into a different episode.
+inline Vec3 operator/(Vec3 a, double d) { return {a.x / d, a.y / d, a.z / d}; }
 inline double dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 inline double norm(Vec3 a) { return std::sqrt(dot(a, a)); }
 inline Vec3 cross(Vec3 a, Vec3 b) {
@@ -24,7 +28,7 @@ inline Vec3 cross(Vec3 a, Vec3 b) {
 }
 inline Vec3 unit(Vec3 v, double eps = 1e-8) {
   double n = norm(v);
-  return n > eps ? v * (1.0 / n) : Vec3{0, 0, 0};
+  return n > eps ? v / n : Vec3{0, 0, 0};
 }
 inline double clamp(double v, double lo, double hi) {
   return v < lo ? lo : (v > hi ? hi : v);

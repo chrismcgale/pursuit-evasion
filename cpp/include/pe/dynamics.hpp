@@ -81,7 +81,7 @@ inline Vec3 apply_dynamics(const DynamicsProfile& dyn, Vec3 vel, Vec3 cmd,
     // Not yet flying: the launcher points it wherever it is commanded.
     return powered ? c : Vec3{0, 0, 0};
   }
-  const Vec3 fwd = vel * (1.0 / speed);
+  const Vec3 fwd = vel / speed;
   Vec3 lat = c - fwd * dot(c, fwd);
   lat = clip_norm(lat, dyn.lat_authority);
   Vec3 out = (powered ? fwd : Vec3{0, 0, 0}) + lat;

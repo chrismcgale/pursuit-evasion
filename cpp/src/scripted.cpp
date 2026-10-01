@@ -163,7 +163,7 @@ std::vector<double> FieldEvaders::act(const TeamView& v) {
       if (k == i || !v.self_alive[k]) continue;
       Vec3 to_me = pos - e_pos[k];
       double d = norm(to_me) + 1e-6;
-      if (d < 3.0) force = force + 0.4 * unit(to_me) * (1.0 / d);
+      if (d < 3.0) force = force + (0.4 * unit(to_me)) / d;   // numpy: 0.4*u/d
     }
 
     Vec3 a = unit(force);

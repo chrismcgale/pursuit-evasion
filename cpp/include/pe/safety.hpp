@@ -43,7 +43,7 @@ inline Violation filter_action(Vec3 pos, Vec3 vel, Vec3& action, double vmax,
   double speed = norm(vel);
   double limit = cfg.speed_limit_frac * vmax;
   if (speed > limit && speed > 1e-6) {
-    Vec3 vhat = vel * (1.0 / speed);
+    Vec3 vhat = vel / speed;
     double along = dot(action, vhat);
     if (along > 0) {
       action = action - along * vhat;
