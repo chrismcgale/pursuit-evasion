@@ -53,3 +53,30 @@ TEST_CASE("speed cap allows braking (component opposing velocity)") {
   CHECK_FALSE(v.speed);       // opposing velocity is allowed
   CHECK(action.x < 0.0);
 }
+
+TEST_CASE("brake-aware fence: fast approach is braked BEFORE the face") {
+  // inside the keep-in box (hi = 11.25) but crossing it within the horizon
+  Vec3 pos{10.9, 0, 3}, vel{5.0, 0, 0}, action{1, 0, 0};
+  auto v = filter_action(pos, vel, action, VMAX, L, ZMIN, ZMAX, cfg);
+  CHECK(v.geofence);
+  CHECK(action.x < 0.0);
+  SafetyConfig legacy;
+  legacy.brake_horizon_s = 0.0;
+  legacy.keep_fence_authority = false;
+  Vec3 a2{1, 0, 0};
+  CHECK_FALSE(filter_action(pos, vel, a2, VMAX, L, ZMIN, ZMAX, legacy).geofence);
+}
+
+TEST_CASE("brake-aware fence: a slow drift toward the face is left alone") {
+  Vec3 pos{10.9, 0, 3}, vel{0.5, 0, 0}, action{1, 0, 0};
+  CHECK_FALSE(filter_action(pos, vel, action, VMAX, L, ZMIN, ZMAX, cfg).geofence);
+}
+
+TEST_CASE("fence keeps its authority through the unit-norm clip") {
+  // a diagonal command at the +x face: the inward x correction must survive
+  // apply_dynamics' norm clip intact; the tangential axes give way instead
+  Vec3 pos{L, 0, 3}, vel{0, 0, 0}, action{1, 1, 1};
+  filter_action(pos, vel, action, VMAX, L, ZMIN, ZMAX, cfg);
+  CHECK(norm(action) <= 1.0 + 1e-12);
+  CHECK(action.x == doctest::Approx(-1.0));
+}
