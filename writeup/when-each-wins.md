@@ -8,13 +8,18 @@ name a regime the baseline does not serve.
 
 - **In `tag` the baseline wins** (~46% capture of random starts) and no learned
   method here beats it; gating tracks and slightly trails it.
-- **In air defence the gate wins outright** — `assault` 0.54 → **0.72**,
-  `escort` 0.40 → **0.46** — using the *same* machinery and no retuning.
+- **In air defence the first gate looked like a big win** — `assault` 0.54 →
+  0.72 — **but most of that was a bug in the scripted law** (§7.2): it solved
+  for a point intercept when a kill needs only the capture sphere. Fixed, the
+  scripted law alone reaches 0.77 (`assault`) / 0.49 (`escort`), and a gate
+  that hands over on the law's *own* fallback flag adds a smaller, real
+  +0.03–0.075 on top (0.80 / 0.53; held-out: 0.845 / 0.62).
 - **The gate profile does not transfer, and the failure is expensive.** Porting
   tag's "close quarters is messy, hand it to the policy" instinct to air defence
   costs **42 points** (0.70 → 0.12) — worse than not gating at all. The boundary
   that pays is not *"where is the world messy"* but *"where does the scripted law
-  stop being defined"*, which you can read off the controller's own math (§7).
+  stop being defined"* — read off the law itself, not approximated: gating on
+  a geometric proxy of that regime, over the fixed law, *loses* 13 points (§7.2).
 - **Run on the *attacker* side of the same game, the identical procedure says
   "don't gate at all"** — every handoff loses breach rate (0.46 → 0.37), so both
   RL branches were deleted from the shipped missile profile. Two opposite
@@ -31,8 +36,8 @@ The learned-side results are a compact tour of when each technique works:
   committing.
 - **DAgger fixes exactly that** — relabelling the learner's *own* visited states
   with the expert takes the same network from **0% → 20%** capture standalone,
-  and to **46%** — level with the scripted baseline — once the gate and safety
-  filter are layered on. That is the headline: the *method*, not the budget, was
+  and to **42%** — near the scripted 46% — once the gate and safety filter are
+  layered on. That is the headline: the *method*, not the budget, was
   the problem.
 - **Gating only helps where the policy actually dominates.** In tag the gate
   hands close-quarters/juking/contested ticks to the (now competent) DAgger
@@ -42,8 +47,9 @@ The learned-side results are a compact tour of when each technique works:
   The defence games are the converse of this, and the reason it's a statement
   about *regimes* rather than about gating.
 - **The safety filter is a surprise net-positive.** Enabling the runtime shield on
-  the gated controller more than **doubles** its win rate (0.19 → 0.46, level with
-  the scripted baseline) by keeping the learned policy inside the geofence/speed
+  the gated controller more than **doubles** its win rate (0.19 → 0.42; 0.46
+  with the pre-review position-only fence, which let it overrun the keep-in box
+  by up to 0.77 m) by keeping the learned policy inside the geofence/speed
   envelope instead of wandering to the walls — safety here *improves* task
   performance rather than costing it. It is the largest single lever on the
   learned side, which was not the expected result for a V&V layer.
@@ -187,17 +193,22 @@ geofence (keep-in box inside the arena) and a speed cap, either of which can
 override the commanded action. It is a pure function, mirrored in Python and C++,
 and unit-tested on both sides; every BT node has a unit test (`cpp/tests`,
 `tests/test_env.py`). Unlike the usual "safety costs a little performance" story,
-here it *helped*: on the gated DAgger controller it fired constantly (7005
-geofence + 4296 speed corrections over 200 episodes) and took the win rate from
-0.19 to 0.46 by keeping the policy in-bounds. That is a strong argument for a
+here it *helped*: on the gated DAgger controller it fired constantly (11970
+geofence + 4924 speed corrections over 200 episodes with the brake-aware fence)
+and took the win rate from 0.19 to 0.42 by keeping the policy in-bounds. (The
+original position-only fence scored 0.46 but let the pursuers overrun the
+keep-in box by up to 0.77 m and touch the arena wall in 11/200 episodes; the
+current fence acts on predicted position and holds the overrun to 0.23 m with
+no wall contacts — a non-significant −0.035 for a real safety margin.) That is a strong argument for a
 *separable* safety layer — it both guarantees the constraints and, as a bonus,
 clips a learned policy's out-of-distribution excursions, without touching the
 reward.
 
 Two caveats keep this honest. The shield's contribution is **game-specific**: in
-air defence it is nearly free but does nothing (`assault` 0.725 → 0.72,
-`escort` 0.46 → 0.44), because the defender gate's scripted branch rarely goes
-near the geofence in the first place. And it is not uniformly positive even in
+air defence it does little (`assault` 0.80 → 0.81) and in `escort` it now
+costs 0.06 (0.53 → 0.47, unpaired — the fence change itself measured neutral
+there, so the speed cap is the suspect), because the defender gate's scripted
+branch rarely goes near the geofence in the first place. And it is not uniformly positive even in
 tag — `pe-explore --game tag --seed 13` records an episode where the gated
 controller captures both evaders in 48 steps *without* the shield and times out
 *with* it, the geofence having deflected a converging intercept. It wins on
@@ -252,15 +263,23 @@ same `libmujoco`. Parity is enforced two ways:
 - **Exact-start checksums** (`pe_run --parity` vs the Python rollout) match to
   ~1e-6 — identical dynamics and scripted logic. On a shared 100-episode start
   set, C++ scripted and Python scripted score identically (0.48 / 0.48).
-- **The neural policy matches too.** ONNX matches SB3 to ~1e-6 per step
-  (`export_onnx` parity), and on the shared start set the pure DAgger policy scores
-  0.16 (C++) vs 0.15 (Python) — within one episode. The gated controller sits at
-  0.13 (C++) vs 0.18 (Python): discrete per-tick gate decisions amplify the ~1e-6
-  policy differences over 500 chaotic steps into a handful of flipped *binary*
-  outcomes, while continuous metrics (min-sep 0.74) stay identical. That is the
-  honest limit of cross-runtime validation for a chaotic closed loop — per-step
-  equivalence, aggregate agreement, not bit-identical episode outcomes once a
-  learned policy is in the loop.
+- **The neural policy and the gate match exactly too.** Both runtimes run the
+  same ONNX file through the same ONNX Runtime version, and on a shared
+  200-episode tag start set the full gated + shielded stack scores identically
+  in C++ and Python (win 0.45, geofence/speed interventions 6974/4397 — every
+  counter equal). Exact-start parity holds for every game × {scripted,
+  bt_safe} and runs in CI.
+
+  This section used to say the opposite: that the gated tag controller drifted
+  (0.13 C++ vs 0.18 Python) because "discrete gate decisions amplify ~1e-6
+  policy differences over 500 chaotic steps" — and that this was the honest
+  limit of cross-runtime validation. It was a bug. The C++ side computed
+  `v * (1.0 / n)` wherever numpy computes `v / n`; the two differ by one ulp in
+  a fraction of cases, and a per-tick action dump located the first divergence
+  at tick 12 of a gated chase. Scripted-only parity never exposed it because
+  the scripted law happened not to hit a differing case on the fixed starts.
+  Lesson, in the same vein as §4.1: a plausible physical story ("chaos") for a
+  residual is not evidence; bisect it to the first differing number.
 
 ## 6. Different games, different winners
 
@@ -303,27 +322,27 @@ Two things flip at once, and both matter:
 | `pursuer_bc_ft` | 0.00 | 0.00 | — | 2.81 | 0/0 |
 | `pursuer_dagger` | 0.20 | 1.06 | 154 | 0.74 | 0/0 |
 | `bt_gated` | 0.19 | 1.10 | 138 | 0.74 | 0/0 |
-| `bt_gated_safe` | 0.46 | 1.36 | 152 | 0.74 | 7005/4296 |
+| `bt_gated_safe` | 0.42 | 1.38 | 202 | 0.73 | 11970/4924 |
 
 
 **assault** — defenders (pursuer slot) vs attackers; win = raid stopped
 
 | controller | defended | breach rate | attackers down | burned out | closest approach (m) | geo/spd viol |
 |---|---|---|---|---|---|---|
-| `scripted` | 0.54 | 0.46 | 1.39 | 0.01 | 8.15 | 0/0 |
+| `scripted` | 0.77 | 0.23 | 1.72 | 0.01 | 11.28 | 0/0 |
 | `assault_dagger` | 0.04 | 0.96 | 0.26 | 0.01 | 2.44 | 0/0 |
-| `bt_gated` | 0.72 | 0.28 | 1.61 | 0.01 | 10.13 | 0/0 |
-| `bt_gated_safe` | 0.72 | 0.28 | 1.61 | 0.01 | 9.93 | 72/484 |
+| `bt_gated` | 0.80 | 0.20 | 1.74 | 0.00 | 11.53 | 0/0 |
+| `bt_gated_safe` | 0.81 | 0.18 | 1.74 | 0.00 | 11.50 | 8/546 |
 
 
 **escort** — escorts (pursuer slot) vs attackers; win = raid stopped
 
 | controller | defended | breach rate | attackers down | burned out | closest approach (m) | geo/spd viol |
 |---|---|---|---|---|---|---|
-| `scripted` | 0.40 | 0.60 | 1.05 | 0.00 | 2.93 | 0/0 |
+| `scripted` | 0.49 | 0.51 | 1.24 | 0.00 | 3.85 | 0/0 |
 | `escort_dagger` | 0.25 | 0.75 | 0.70 | 0.00 | 2.26 | 0/0 |
-| `bt_gated` | 0.46 | 0.54 | 1.13 | 0.00 | 3.14 | 0/0 |
-| `bt_gated_safe` | 0.44 | 0.56 | 1.11 | 0.00 | 2.89 | 385/245 |
+| `bt_gated` | 0.53 | 0.47 | 1.31 | 0.00 | 4.20 | 0/0 |
+| `bt_gated_safe` | 0.47 | 0.54 | 1.26 | 0.00 | 3.38 | 555/345 |
 
 ## 7. The air-defence gate is a *different* tree — and that is the result
 
@@ -365,7 +384,7 @@ math rather than tune by intuition. Two consequences worth noting:
   intercept solutions infeasible far more often. The predicate is about the
   scripted law's validity, not a threshold fitted to one game.
 - **The gate now wins outright**, which it never did in tag. On the 200-episode
-  battery in §6: `assault` scripted 0.54 → gated **0.72**, with the safety filter
+  battery in §6 (pre-review): `assault` scripted 0.54 → gated **0.72**, with the safety filter
   costing nothing (0.72 → 0.72); `escort` scripted 0.40 → gated **0.46** (0.44
   shielded). The ablation above ran 150 episodes on two independent seed blocks
   and put the same profile at 0.70/0.71 — consistent, and a useful reminder of
@@ -406,7 +425,7 @@ air defence". The difference is structural:
 > The defender's scripted law has a regime where it is **undefined** — no positive
 > lead-intercept root, so it parks on a static gate point and has nothing to
 > offer. The missile's guidance law has no such regime. A committed terminal
-> run-in is precisely the case proportional navigation is *for*, and the policy
+> run-in is precisely the case a lead-guidance law is *for*, and the policy
 > is strictly worse everywhere.
 
 **Hand a regime to the policy where the scripted controller is undefined, not
@@ -422,6 +441,54 @@ Both the removal and the reasoning are pinned by tests in both runtimes
 (`test_attacker_gate_hands_over_nothing`, and its doctest mirror ticking the
 shipped XML), so the profile cannot silently regrow the branches that lost.
 
+### 7.2 Revisited: the regime was partly a bug in the scripted law
+
+A later review asked two questions of §7 that its ablation could not, and both
+answers changed the shipped code.
+
+**Was the predicate the law's regime?** No — an approximation of it.
+`intercept_infeasible` asked whether a *point* intercept of the *nearest*
+threat exists. The scripted law actually switches on its *assigned* threat
+(ordered by time-to-asset) and also falls back when the intercept would land
+after the missile reaches the asset. Over 13,148 agent-ticks of the shipped
+gate, 14% of handovers happened while the law still had an intercept, and the
+law was parked on its gate point on 957 ticks (37% of its fallback) that the
+gate left with it.
+
+**Was the regime genuinely undefined?** Mostly not. A kill only needs the gap
+under the 1.4 m capture radius, but the law solved for the point. Solving
+|rel + v·t| = v_p·t + r instead — about fifteen lines — shrinks the "no
+solution" band dramatically. A 3×3 matrix (law: r ∈ {0, 0.7, 1.4} m × gate:
+none / old proxy / the law's own fallback flag) on seed blocks 10000 and
+110000 picked r = 0.7 m; then on held-out seeds 20000+ (n = 200, paired):
+
+| defender stack | `assault` | `escort` |
+|---|---|---|
+| point-solve law (§7's baseline) | 0.525 | 0.440 |
+| point-solve law + `intercept_infeasible` gate (§7, was shipped) | 0.730 | 0.495 |
+| sphere-solve law, no gate | 0.795 | 0.545 |
+| sphere-solve law + gate on the law's own fallback flag (**shipped**) | **0.845** | **0.620** |
+
+Three consequences:
+
+- **Most of §7's +0.17 was a fix the scripted law could make itself.** The
+  corrected law alone beats the old gated stack in `assault`. What the policy
+  added was largely covering for a solver that called reachable geometry
+  "impossible" — and that policy is itself a DAgger clone of the old law, so in
+  the fallback regime it was a smoothed copy of the very behaviour the gate was
+  bypassing.
+- **The thesis survives, smaller and sharper.** Over the corrected law, gating
+  on the law's *own* fallback flag still earns +0.05 (`assault`) and +0.075
+  (`escort`), both intervals excluding zero. Gating on the old *proxy* over the
+  same corrected law loses 13 points (`assault`) and 8 (`escort`): it hands the
+  policy geometry the law now handles. "Hand over where the scripted law is
+  undefined" holds — but it must be read off the law (`GuardDefenders.plan()`
+  returns the flag the gate consumes), not off an approximation of it.
+- **The first question to ask of an "undefined" regime is whether the scripted
+  law is solving the right problem.** A gate can paper over a solver bug and
+  measure as a win. The method in §7 — ablate one predicate at a time — cannot
+  tell those apart; changing the scripted law can.
+
 ### Cross-runtime validation of the new games
 
 Both defence games were re-validated under the CLAUDE.md invariant. On a shared
@@ -436,10 +503,8 @@ safety filter's individual violation counts:
 | `bt_gated` (py = cpp) | 0.68 | 1.56 | 0.32 | 9.7 | 0/0 |
 | `bt_gated_safe` (py = cpp) | 0.70 | 1.62 | 0.30 | 9.7 | 19/238 |
 
-That is a stronger parity result than tag's, where a learned policy in a 500-step
-chaotic chase flipped a handful of binary outcomes (§5). The defence episodes are
-shorter (200 steps) and more geometrically determined, so ~1e-6 per-step
-differences don't get the chance to compound.
+(Pre-review numbers; the defender law and gate changed in §7.2. Parity for the
+current stack is exact and checked in CI — and tag now matches exactly too, §5.)
 
 **One honest V&V caveat.** The geofence can only *request* a correction from a
 missile. The safety filter emits a desired command, but the airframe transform
@@ -451,20 +516,17 @@ vehicle that distinction matters: a shield you cannot actuate is not a shield.
 ## 8. Limitations & next
 
 - **Beating the baseline in tag.** The best learned configuration (DAgger + gate
-  + shield) reaches 0.46, which *matches* scripted's 0.455 but does not beat it —
+  + shield) reaches 0.42 (0.46 with the old, leakier fence), near scripted's
+  0.46 but not beating it —
   and it gets there mostly via the safety filter rather than via the gate, since
   DAgger alone is 0.20 and the unshielded gate 0.19. Calling that "parity with the
   baseline" would be generous: it is a learned policy rescued by a hand-written
   constraint layer. More DAgger iterations or a stronger network would help. A
   *residual*
   policy (learning a correction on top of the scripted action) is the obvious
-  textbook suggestion here, but §7 is a reason to be sceptical of it as the first
-  move: residual learning assumes the scripted action is a good basis everywhere
-  and only needs nudging, whereas the measurable win came from identifying the
-  regime where the scripted action is not defined at all and replacing it
-  wholesale. A residual would smear a correction across both regimes, which is
-  closer to the 4-branch gate that lost 42 points than to the 2-branch one that
-  won. Worth trying, but *after* the regime analysis, not instead of it.
+  textbook suggestion here; §7.2 is a reason to try the cheaper thing first —
+  check whether the scripted law is solving the right problem. In air defence
+  that one fix was worth more than the whole learned branch.
 - **Attacker teams are always scripted *in the defender numbers*.** §7.1 now
   trains and ablates an attacker policy, but every *defender* win rate in §6/§7
   is still measured against the scripted raid doctrine. The attacker policy came
@@ -474,7 +536,7 @@ vehicle that distinction matters: a shield you cannot actuate is not a shield.
   adapt to each other's gate, is the open experiment.
 - **No error bars, and a known selection bias.** Every table is a point estimate.
   The ±1σ band at 150–200 episodes is a few points, so differences of that size
-  (e.g. `assault` 0.725 vs 0.72 shielded) are not findings; only the large gaps
+  (e.g. `assault` 0.80 vs 0.81 shielded) are not findings; only the large gaps
   are. Worse, checkpoints are chosen best-of-N on a small battery, which is
   biased high: the tag DAgger refit scored 0.30 on its 40-episode selection
   battery and 0.20 on a held-out 200. Selection and reporting batteries are

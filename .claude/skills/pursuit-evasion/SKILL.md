@@ -62,20 +62,28 @@ ninja -C build
 Cross-runtime validation — the CLAUDE.md invariant. Run after touching dynamics,
 observations, scripted controllers, gate predicates or the safety filter:
 ```bash
-# 1. exact same-start checksums; both halves print the same 5 lines (tag only)
-uv run pe-parity                                                  # from repo root
-./build/pe_run --parity                                           # from cpp/
+# 1. exact same-start lines, per game x stack (CI runs all six; all exact)
+uv run pe-parity --game assault --controller bt_safe > /tmp/py.txt        # repo root
+(cd cpp && ./build/pe_run --parity --game assault --controller bt_safe) > /tmp/cpp.txt
+uv run python scripts/check_parity.py /tmp/py.txt /tmp/cpp.txt
 
 # 2. aggregate parity per game — catches gate / ONNX / shield drift
 uv run python -m pursuit_evasion.eval.dump_starts                 # writes s_<game>.txt
 ./build/pe_run --game assault --controller bt_safe --starts-file /tmp/s_assault.txt
 ```
-Compare against the same cell from `pe-games`. On the **defence** games these
-match *exactly*, including violation counts. On **tag**, expect a few flipped
-binary outcomes in long chaotic chases — judge on outcomes, not on the tail of
-`steps2win`.
+Compare against the same cell from `pe-games` (or, for the policy arms, a Python
+run through `eval.parity.OnnxRLController` — SB3/torch differs from ORT at ~1e-6).
+All three games match *exactly*, including violation counts and RL ticks.
 
 ## Debug / common errors
+
+- **`ninja: error: rebuilding 'build.ninja'` / `libmujoco.so... cannot open`** —
+  the build dir's CMake cache holds absolute paths; after the 2026-09-27 home
+  reorg it pointed at `~/pursuit-evasion`. Delete `cpp/build` and reconfigure.
+- **Parity diverges on a gated tag chase but scripted parity is exact** — a C++
+  expression multiplying by a reciprocal where numpy divides. Use
+  `Vec3 operator/`. Find the tick with a temporary per-tick `%.17g` action dump
+  on both sides (that is how the 2026-09-30 bug was found: tick 12, one ulp).
 
 - **ONNX export fails with `onnxscript`/dynamo trace error** — use the legacy
   exporter (`dynamo=False`) and compute the action head directly (already done in
@@ -122,6 +130,10 @@ XML + a gate tree.
 - `cpp/assets/*.xml` are committed but generated — run `dump_arenas --check` after
   any geometry change. `arena.xml` must stay byte-identical unless you mean to
   move the tuned tag baseline.
+- **The defender gate reads the law's own regime** (`GuardDefenders.plan()`
+  fallback flags → `scripted_fallback`). Don't reintroduce a feature that
+  *re-derives* "infeasible" from geometry — the 2026-09-30 proxy disagreed with
+  the law on a third of its fallback ticks and lost 13 points.
 - **Don't port the tag gate profile to the defence games.** Measured: adding
   tag's `close_quarters -> RL` branch to the defender gate drops it 0.70 to 0.12.
   The shipped defender gate is deliberately two branches; the ablation is in
@@ -141,6 +153,23 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-09-30** **Deep review → four semantic changes, all in both runtimes,
+  all six parity combinations exact.** (Full detail: `docs/REVIEW.md` top.)
+  (1) `GuardDefenders` solves the intercept against a 0.7 m sphere, not the
+  point — the "structurally undefined" regime was mostly that bug; scripted
+  assault 0.53 → 0.80 held-out. (2) The defender gate hands over on the law's
+  OWN fallback flag (`plan()` → `scripted_fallback`); the old nearest-threat
+  proxy disagreed on 37% of fallback ticks and loses 13 points over the fixed
+  law. Shipped stack: assault 0.73 → 0.845, escort 0.495 → 0.62 held-out; the
+  gate's own share is now +0.05/+0.075, not +0.17. (3) Tag's cross-runtime
+  "chaotic flips" were C++ `v*(1/n)` vs numpy `v/n`; fixed, tag gate aggregate
+  now exact; CI parity covers every game × {scripted, bt_safe}; `models/`
+  committed; `pe_run` default tag ONNX was the wrong policy. (4) Brake-aware,
+  authority-preserving geofence (h=0.15 s swept): tag overrun 0.77 → 0.23 m,
+  wall contacts 11 → 0, win −0.035 n.s. Checked and fine: latency cliff is real
+  (forward prediction recovers ≤0.12); starts-file rounding flips nothing.
+  Still open: policies are clones of the OLD law (REVIEW #19).
 
 - **2026-09-06 (later)** **Debounce experiment: the escalation "anti-pattern"
   was a symptom, not a cost — fix built, measured, reverted.** ROADMAP #3

@@ -38,9 +38,19 @@ radius is therefore `v²/a_lat` — fast means committed.
 **The gate profile is per-game and empirically derived, not ported.** Tag's
 "close quarters is messy → hand it to the policy" is *actively harmful* in air
 defence (0.70 → 0.12 measured). The defender gate hands over exactly one regime:
-where the scripted law is **structurally undefined** (no positive lead-intercept
-root, so it parks on a static gate point). Keep it at two branches; see
-`writeup/when-each-wins.md` §7 and the ablation in `_defender_predicates`.
+where the scripted law is **structurally undefined** — and it reads that off the
+law itself (`GuardDefenders.plan()` → `scripted_fallback`), never a proxy. The
+old proxy (point intercept of the *nearest* threat) disagreed with the law on a
+third of its fallback ticks, and over the fixed law it loses 13 points. Keep it
+at two branches; see `writeup/when-each-wins.md` §7 and `_defender_predicates`.
+
+**The defender law solves the intercept against the kill sphere**
+(`intercept_radius` 0.7 m = half the 1.4 m capture radius), not the point. The
+point solve called reachable geometry "infeasible"; fixing it lifted *scripted*
+assault 0.53 → 0.80 on held-out seeds, more than the old gate ever added. After
+it the gate still earns +0.05 (assault) / +0.075 (escort). Lesson: before
+gating a regime, check the scripted law is solving the right problem. Tag's
+`InterceptPursuers` still uses the point solve on purpose (calibrated baseline).
 
 **The attacker gate hands over nothing, and that is measured too.** The same
 ablation on the evader/missile slot came out monotonically downhill (breach
@@ -69,15 +79,20 @@ The two are kept semantically identical and cross-checked:
   **same** `libmujoco.so.3.12.0` (from the venv);
 - the observation encoding, scripted controllers, feature extraction, gate
   predicates, and safety filter are line-for-line mirrors;
-- `pe_run --parity` (C++) vs `pe-parity` (Python) must print matching checksums
-  for the same 5 fixed starts;
+- `pe_run --parity` (C++) vs `pe-parity` (Python) must print matching lines
+  for the same 5 fixed starts, per game (`--game`) and per stack
+  (`--controller scripted|bt_safe`); CI runs all six. `bt_safe` runs the policy
+  through the same ONNX file + ORT version on both sides, so it is exact too;
 - the C++ runner can consume Python's exact start states (`--starts-file`, dumped
   by `eval.dump_starts`) so aggregate metrics match, not just single rollouts.
   numpy's Generator and `std::mt19937_64` are different streams — the same seed
   does *not* give the same spawns, which is why the starts file exists.
-  On the defence games the two runtimes match **exactly**, including per-counter
-  safety violations. On tag expect a few flipped binary outcomes in long chaotic
-  chases; judge on outcomes, not on the tail of `steps2win`.
+  All three games match **exactly**, including per-counter safety violations
+  and the gate's RL tick count — tag too. The flipped tag outcomes this used to
+  excuse as "chaotic chases" were a real bug: C++ computed `v * (1.0 / n)` where
+  numpy computes `v / n`, one ulp apart. **Write division wherever numpy
+  divides** (`Vec3 operator/`); a reciprocal-multiply will pass the scripted
+  tag check and still diverge a gated 500-step chase.
 
 **Invariant:** any change to dynamics, the observation layout, the scripted
 controllers, the gate predicates, or the safety filter MUST be applied to *both*

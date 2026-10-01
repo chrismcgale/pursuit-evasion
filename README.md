@@ -48,17 +48,20 @@ Headline results (200 episodes; full detail and caveats in the writeup):
 
 | | scripted | best learned | BT-gated | + safety filter |
 |---|---|---|---|---|
-| `tag` (capture rate) | **0.46** | 0.20 | 0.19 | 0.46 |
-| `assault` (asset held) | 0.54 | 0.04 | **0.72** | 0.72 |
-| `escort` (convoy through) | 0.40 | 0.25 | **0.46** | 0.44 |
+| `tag` (capture rate) | **0.46** | 0.20 | 0.19 | 0.42 |
+| `assault` (asset held) | 0.77 | 0.04 | 0.80 | **0.81** |
+| `escort` (convoy through) | 0.49 | 0.25 | **0.53** | 0.47 |
 
 The short version: gating pays exactly where the scripted controller is
-*structurally undefined*, not where the situation merely looks messy. In `tag`,
-where lead-intercept is well-defined everywhere, gating buys nothing and the
-safety filter does the work. In air defence there is a regime with no valid
-intercept solution, and handing precisely that regime to the policy is worth 16+
-points. Run the same procedure on the attacker side and it says *don't gate at
-all* — which is why the shipped missile profile has no learned branch.
+*structurally undefined*, not where the situation merely looks messy — and the
+gate must read that regime off the scripted law itself. In `tag`, where
+lead-intercept is well-defined everywhere, gating buys nothing and the safety
+filter does the work. In air defence the first gate looked like +17 points, but
+a review found most of it was the scripted law solving for a point intercept
+when a kill only needs the capture sphere; fixed, the law alone reaches 0.77,
+and a gate on the law's own fallback flag adds a smaller, real few points
+(held-out: 0.795 → 0.845 `assault`, 0.545 → 0.62 `escort`). Run the same
+procedure on the attacker side and it says *don't gate at all*.
 
 ## C++ production runtime
 
