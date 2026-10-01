@@ -35,6 +35,28 @@ Vec3 lead_intercept_dir(Vec3 rel_pos, Vec3 evader_vel, double vp) {
   return unit(rel_pos + evader_vel * (*t));
 }
 
+std::optional<double> lead_intercept_time_sphere(Vec3 rel_pos, Vec3 evader_vel, double vp,
+                                                 double radius) {
+  if (radius <= 0.0) return lead_intercept_time(rel_pos, evader_vel, vp);
+  double c = dot(rel_pos, rel_pos) - radius * radius;
+  if (c <= 0.0) return 0.0;   // already inside the sphere
+  double a = dot(evader_vel, evader_vel) - vp * vp;
+  double b = 2.0 * dot(rel_pos, evader_vel) - 2.0 * vp * radius;
+  if (std::fabs(a) < 1e-9) {
+    if (b < 0.0) return -c / b;
+    return std::nullopt;
+  }
+  double disc = b * b - 4 * a * c;
+  if (disc < 0) return std::nullopt;
+  double sq = std::sqrt(disc);
+  double r0 = (-b - sq) / (2 * a), r1 = (-b + sq) / (2 * a);
+  double best = std::numeric_limits<double>::infinity();
+  for (double r : {r0, r1})
+    if (r > 1e-6) best = std::min(best, r);
+  if (!std::isfinite(best)) return std::nullopt;
+  return best;
+}
+
 double time_to_asset(Vec3 pos, Vec3 vel, Vec3 asset, double vmax) {
   double d = norm(asset - pos);
   double speed = norm(vel);
@@ -215,7 +237,7 @@ std::vector<int> GuardDefenders::assign(const TeamView& v, Vec3 asset) const {
     for (int i = 0; i < n_self; ++i) {
       if (!free[i]) continue;
       Vec3 rel = v.opp_pos[j] - v.self_pos[i];
-      auto t = lead_intercept_time(rel, v.opp_vel[j], v.vmax);
+      auto t = intercept_time(rel, v.opp_vel[j], v.vmax);
       double cost = t ? *t : kBig + norm(gate_point(v.opp_pos[j], asset) - v.self_pos[i]);
       if (cost < best_cost) { best_cost = cost; best_i = i; }
     }
@@ -230,9 +252,11 @@ std::vector<int> GuardDefenders::assign(const TeamView& v, Vec3 asset) const {
   return out;
 }
 
-std::vector<double> GuardDefenders::act(const TeamView& v) {
+std::vector<double> GuardDefenders::plan(const TeamView& v,
+                                         std::vector<char>& fallback) const {
   const int n_self = v.n_self();
   std::vector<double> out(n_self * 3, 0.0);
+  fallback.assign(n_self, 0);
   if (!v.has_asset) return out;
   const Vec3 asset = v.asset_pos;
   std::vector<int> a = assign(v, asset);
@@ -249,12 +273,13 @@ std::vector<double> GuardDefenders::act(const TeamView& v) {
       d = unit(to_asset) * (r > patrol_radius ? 1.0 : -0.3);
     } else {
       Vec3 rel = v.opp_pos[j] - pos;
-      auto t_int = lead_intercept_time(rel, v.opp_vel[j], v.vmax);
+      auto t_int = intercept_time(rel, v.opp_vel[j], v.vmax);
       double t_asset = time_to_asset(v.opp_pos[j], v.opp_vel[j], asset, v.opp_vmax);
       if (t_int && *t_int <= t_asset) {
-        d = lead_intercept_dir(rel, v.opp_vel[j], v.vmax);
+        d = *t_int > 0.0 ? unit(rel + v.opp_vel[j] * (*t_int)) : unit(rel);
       } else {
         // can't catch it — be where it has to come through
+        fallback[i] = 1;
         Vec3 to_gate = gate_point(v.opp_pos[j], asset) - pos;
         d = norm(to_gate) < 0.8 ? unit(rel)   // on station: hold and face the threat
                                 : unit(to_gate);
@@ -265,6 +290,11 @@ std::vector<double> GuardDefenders::act(const TeamView& v) {
     out[i * 3 + 2] = clamp(d.z, -1, 1);
   }
   return out;
+}
+
+std::vector<double> GuardDefenders::act(const TeamView& v) {
+  std::vector<char> fallback;
+  return plan(v, fallback);
 }
 
 // ------------------------------------------------------ MissileAttackers

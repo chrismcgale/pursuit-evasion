@@ -8,9 +8,14 @@ degenerates to a hopeless stern chase.
 
 ``GuardDefenders`` therefore uses a two-regime law:
 
-* **Feasible intercept** — if the quadratic has a positive root *and* that
-  intercept happens before the missile reaches the asset, fly the lead bearing.
-  This is the good case and it is exactly the tag-game controller.
+* **Feasible intercept** — if the defender can reach the missile's
+  ``intercept_radius``-sphere at full speed *and* that happens before the
+  missile reaches the asset, fly the lead bearing to that meeting point.
+  The sphere matters: a kill only needs the gap under the 1.4 m capture radius,
+  and the old point solve (radius 0) called a whole band of reachable geometry
+  "infeasible". Solving against half the capture radius (0.7 m, a margin for
+  the missile's last-second break) lifted scripted assault 0.53 -> 0.80 and
+  escort 0.44 -> 0.55 on held-out seeds — more than the old gate ever added.
 * **Infeasible intercept** — otherwise, fall back on *position*: fly to a gate
   point on the missile's inbound bearing, a fixed standoff from the asset. You
   cannot catch it, so you wait where it must come. Terminal defence.
@@ -26,7 +31,7 @@ import numpy as np
 
 from ..env.core import TeamView
 from .base import BaseController, unit
-from .pursuers import lead_intercept_dir, lead_intercept_time
+from .pursuers import lead_intercept_time_sphere
 
 _BIG = 1e9
 
@@ -47,10 +52,15 @@ class GuardDefenders(BaseController):
     name = "scripted_defenders"
 
     def __init__(self, standoff: float = 9.0, min_standoff: float = 3.5,
-                 patrol_radius: float = 6.0):
+                 patrol_radius: float = 6.0, intercept_radius: float = 0.7):
         self.standoff = standoff        # gate distance from the asset (m)
         self.min_standoff = min_standoff
         self.patrol_radius = patrol_radius
+        # solve the intercept against this sphere, not the point (0 = legacy)
+        self.intercept_radius = intercept_radius
+
+    def _intercept_time(self, rel: np.ndarray, vel: np.ndarray, vp: float) -> float | None:
+        return lead_intercept_time_sphere(rel, vel, vp, self.intercept_radius)
 
     # ------------------------------------------------------------- assignment
     def _assign(self, view: TeamView, asset: np.ndarray) -> list[int]:
@@ -70,7 +80,7 @@ class GuardDefenders(BaseController):
             # if none can intercept, whichever is closest to its gate point
             def cost(i: int) -> float:
                 rel = view.opp_pos[j] - view.self_pos[i]
-                t = lead_intercept_time(rel, view.opp_vel[j], view.vmax)
+                t = self._intercept_time(rel, view.opp_vel[j], view.vmax)
                 if t is not None:
                     return t
                 gate = self._gate_point(view.opp_pos[j], asset)
@@ -93,11 +103,21 @@ class GuardDefenders(BaseController):
         return asset + unit(to_att) * reach
 
     # ------------------------------------------------------------------- act
-    def act(self, view: TeamView) -> np.ndarray:
+    def plan(self, view: TeamView) -> tuple[np.ndarray, np.ndarray]:
+        """(team action, per-agent fallback flags).
+
+        ``fallback[i]`` is True when agent i has a threat but this law has no
+        intercept for it and is parking on the gate point — the one regime the
+        air-defence gate hands to the policy. The gate reads it from HERE rather
+        than recomputing a proxy, so the handover is the controller's own
+        regime switch by construction (the old nearest-threat, point-solve
+        proxy disagreed with it on ~1/3 of fallback ticks).
+        """
         n_self = view.self_pos.shape[0]
         actions = np.zeros((n_self, 3))
+        fallback = np.zeros(n_self, dtype=bool)
         if not view.has_asset:
-            return actions.reshape(-1)
+            return actions.reshape(-1), fallback
         asset = view.asset_pos
         assign = self._assign(view, asset)
 
@@ -114,12 +134,14 @@ class GuardDefenders(BaseController):
                 continue
 
             rel = view.opp_pos[j] - pos
-            t_int = lead_intercept_time(rel, view.opp_vel[j], view.vmax)
+            t_int = self._intercept_time(rel, view.opp_vel[j], view.vmax)
             t_asset = time_to_asset(view.opp_pos[j], view.opp_vel[j], asset, view.opp_vmax)
             if t_int is not None and t_int <= t_asset:
-                actions[i] = lead_intercept_dir(rel, view.opp_vel[j], view.vmax)
+                aim = rel + view.opp_vel[j] * t_int
+                actions[i] = unit(aim) if t_int > 0.0 else unit(rel)
             else:
                 # can't catch it — be where it has to come through
+                fallback[i] = True
                 gate = self._gate_point(view.opp_pos[j], asset)
                 to_gate = gate - pos
                 if float(np.linalg.norm(to_gate)) < 0.8:
@@ -127,4 +149,7 @@ class GuardDefenders(BaseController):
                     actions[i] = unit(rel)
                 else:
                     actions[i] = unit(to_gate)
-        return np.clip(actions.reshape(-1), -1, 1)
+        return np.clip(actions.reshape(-1), -1, 1), fallback
+
+    def act(self, view: TeamView) -> np.ndarray:
+        return self.plan(view)[0]

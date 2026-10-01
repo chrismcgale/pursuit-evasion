@@ -42,6 +42,33 @@ def lead_intercept_time(rel_pos: np.ndarray, evader_vel: np.ndarray, vp: float) 
     return t
 
 
+def lead_intercept_time_sphere(rel_pos: np.ndarray, evader_vel: np.ndarray, vp: float,
+                               radius: float) -> float | None:
+    """Smallest t >= 0 at which a constant-speed pursuit reaches the target's
+    ``radius``-sphere: solves |rel_pos + evader_vel * t| = vp * t + radius.
+
+    A kill only needs the gap below the capture radius, not zero, so the point
+    solve above (``radius = 0``) declares "no intercept exists" in a band of
+    geometry where one does. That band is most of what the air-defence gate
+    used to hand to the policy. ``radius <= 0`` is exactly ``lead_intercept_time``.
+    """
+    if radius <= 0.0:
+        return lead_intercept_time(rel_pos, evader_vel, vp)
+    c = float(rel_pos @ rel_pos) - radius * radius
+    if c <= 0.0:
+        return 0.0                                   # already inside the sphere
+    a = float(evader_vel @ evader_vel - vp * vp)
+    b = float(2.0 * (rel_pos @ evader_vel)) - 2.0 * vp * radius
+    if abs(a) < 1e-9:
+        return (-c / b) if b < 0.0 else None
+    disc = b * b - 4 * a * c
+    if disc < 0:
+        return None
+    sq = np.sqrt(disc)
+    roots = [r for r in ((-b - sq) / (2 * a), (-b + sq) / (2 * a)) if r > 1e-6]
+    return min(roots) if roots else None
+
+
 def lead_intercept_dir(rel_pos: np.ndarray, evader_vel: np.ndarray, vp: float) -> np.ndarray:
     """Unit steering direction to the predicted meeting point.
 
