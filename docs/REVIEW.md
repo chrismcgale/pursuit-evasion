@@ -64,6 +64,16 @@ Post-review headline (`pe-games`, seeds 10000+, n=200): tag 0.46 / gated 0.19 /
 +shield 0.42; assault 0.77 / 0.80 / 0.81; escort 0.49 / 0.53 / **0.47** — note
 the shield now *costs* escort 0.06 (the fence change itself was measured
 neutral there, 0.460 → 0.465, so suspect the speed cap; unpaired, check it).
+**Robustness, re-run on the new semantics (assault, n=150, seeds 20000+,
+paired):** the gate's edge is +0.027 at perfect link, +0.013 (n.s.) on
+`vicon_lab`, and exactly zero from 20 ms of state latency on. The old headline
+"gate advantage survives a well-run Vicon volume (+0.16)" **no longer holds** —
+it was the old law's weakness surviving, not the gate. What changed instead:
+the fixed scripted law degrades far more gracefully (40 ms: 0.49, was 0.19;
+60 ms: 0.27, was 0.05), and the shield is the load-bearing mitigation
+(+0.13 at 60 ms, +0.21 at 80 ms, CIs exclude 0). Hardware recipe is now simply
+**scripted + shield**; the gate is a perfect-link refinement.
+(`robust_assault_{latency,presets}.json`; other axes still pre-review, #22.)
 Pre-review result JSONs are preserved in `results/pre-review-2026-09-30/`.
 
 ## What exists

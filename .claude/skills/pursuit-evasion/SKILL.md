@@ -169,7 +169,10 @@ XML + a gate tree.
   authority-preserving geofence (h=0.15 s swept): tag overrun 0.77 → 0.23 m,
   wall contacts 11 → 0, win −0.035 n.s. Checked and fine: latency cliff is real
   (forward prediction recovers ≤0.12); starts-file rounding flips nothing.
-  Still open: policies are clones of the OLD law (REVIEW #19).
+  Robustness re-run (assault latency/presets): gate edge +0.03 perfect, 0 from
+  20 ms; fixed law 0.49 @40 ms (was 0.19); shield +0.13/+0.21 @60/80 ms →
+  hardware recipe is scripted + shield. Still open: policies are clones of the
+  OLD law (REVIEW #19); other robustness axes pre-review (#22).
 
 - **2026-09-06 (later)** **Debounce experiment: the escalation "anti-pattern"
   was a symptom, not a cost — fix built, measured, reverted.** ROADMAP #3

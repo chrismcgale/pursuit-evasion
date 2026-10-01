@@ -96,6 +96,10 @@ and what is broken.*
 
 ## Standing questions
 
+- **Revised 2026-09-30 (review):** with the sphere-solving defender law the
+  gate's edge is +0.03 at perfect link and zero from 20 ms on (assault, n=150);
+  the hardware recipe is **scripted + shield** regardless of volume quality. The
+  question below is answered for the OLD law only.
 - ~~Does the escalation fix (task 3) restore the gate at realistic latency?~~
   **Answered 2026-09-06: no — it destroys the gate at low latency and restores
   nothing.** Refined conclusion: the gate earns its +0.23 below ~30 ms of
