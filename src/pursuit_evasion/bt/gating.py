@@ -24,10 +24,9 @@ The objective games (``assault`` / ``escort``) add two more profiles, because
 the regime where the scripted controller is weak is a *different* regime:
 
     Selector "gate[defender]"
-      ├─ Sequence  intercept infeasible? → MODE = RL       (scripted falls back
-      │                                                     to a static gate)
-      ├─ Sequence  threat imminent?      → MODE = RL       (terminal endgame)
-      ├─ Sequence  close quarters?       → MODE = RL
+      ├─ Sequence  scripted fallback?    → MODE = RL       (the law itself has no
+      │                                                     intercept and parks
+      │                                                     on a static gate)
       ├─ Sequence  clean intercept?      → MODE = SCRIPTED (lead geometry works)
       └─ MODE = SCRIPTED
 
@@ -121,54 +120,63 @@ def _evader_predicates():
 
 
 def _defender_predicates():
-    """Air-defence handoff — and it is NOT the tag heuristic.
+    """Air-defence handoff: exactly the scripted law's own fallback regime.
 
-    Measured on ``assault`` (150 eps x 2 seed blocks, DAgger policy as the RL
-    branch), gating on one predicate at a time:
+    History, because each step was measured (assault, defender win rate):
 
-        scripted only ............................ 0.54 / 0.56
-        intercept_infeasible -> RL ............... 0.70 / 0.71   <-- ship this
-        + threat_imminent -> RL .................. 0.45 / 0.45
-        + close_quarters -> RL ................... 0.12 / 0.12
-        RL only .................................. 0.03
+    1. *Not the tag heuristic.* Gating one predicate at a time on the original
+       law (150 eps x 2 seed blocks, DAgger policy on the RL branch):
 
-    So the tag profile's instinct — "close quarters is messy, hand it to the
-    policy" — is *actively harmful* here, costing 42 points. The terminal
-    endgame against a missile is not a scrappy dogfight; it is a precise
-    geometry problem the lead-intercept law solves near-optimally and the
-    policy cannot. The one regime worth handing over is the one where the
-    scripted law is not merely imprecise but **structurally undefined**: no
-    positive intercept solution exists, so it falls back to parking on a static
-    gate point and has nothing better to offer.
+           scripted only ............................ 0.54 / 0.56
+           intercept_infeasible -> RL ............... 0.70 / 0.71
+           + threat_imminent -> RL .................. 0.45 / 0.45
+           + close_quarters -> RL ................... 0.12 / 0.12
 
-    The handover is deliberately **immediate — a debounced variant was measured
-    and lost**. Under a degraded link, handover share rises 16%→22% (feasibility
-    computed from a bad estimate reads as "no solution exists"), which looked
-    like an anti-pattern: the tree escalating to the policy exactly when the
-    policy is least trustworthy. Requiring the infeasibility to persist k
-    consecutive ticks before handing over was a clean dose-response *loss*
-    (assault latency axis, n=150 paired seeds+corruption, bt_gated win rate):
+       Tag's "close quarters is messy, hand it to the policy" instinct cost 42
+       points: the terminal endgame is a precise geometry problem the
+       lead-intercept law owns.
 
-        latency:      0 ms   20 ms   40 ms   60 ms
-        k=1 (ship)    0.71    0.51    0.21    0.07
-        k=2           0.59    0.37    0.19    0.06
-        k=3           0.49    0.35    0.19    0.06
+    2. *The proxy was not the law (2026-09-30 review).* ``intercept_infeasible``
+       asked whether a POINT intercept of the NEAREST threat exists. The law
+       actually switches on its ASSIGNED threat (by time-to-asset) and also
+       falls back when the intercept lands after the missile reaches the asset.
+       They disagreed on 14% of handovers and on 37% of the law's fallback
+       ticks. Worse, the point solve ignored the 1.4 m capture radius, so much
+       of the "undefined" regime was reachable all along. Solving the law
+       against a 0.7 m sphere (``GuardDefenders.intercept_radius``) and gating
+       on its own fallback flag, held-out seeds 20000+ (n=200, paired):
 
-    Each extra tick of delay costs ~0.10-0.12 at the clean end and recovers
-    nothing at the degraded end. Traces show why: at perfect link infeasibility
-    does not flicker — genuine handover regimes are 20-30-tick streaks and the
-    1-3-tick blips are real geometry, so a debounce only delays the handover by
-    (k-1) ticks, and at 11 m/s missile speed those ~1.3 m decide the episode.
-    The extra handovers under degradation were never the thing costing wins;
-    the latency collapse belongs to the *policy*, and the shield — not the gate
-    — is the load-bearing mitigation there. Pinned by
-    ``test_defender_handover_is_immediate``.
+                                        assault   escort
+           old scripted ................ 0.525     0.440
+           old scripted + old gate ..... 0.730     0.495   (previously shipped)
+           sphere scripted ............. 0.795     0.545
+           sphere scripted + old gate .. (loses: -0.13 / -0.08 on blocks A+B)
+           sphere scripted + this gate . 0.845     0.620   <-- shipped
+
+       The policy still earns its handover (+0.05 / +0.075 over its own
+       scripted law, both CIs exclude 0), but the gap is now a few points, not
+       seventeen: most of the old gate's gain was a fix the scripted law could
+       make itself. And gating on the old proxy *over* the fixed law is
+       actively harmful — the clean version of the thesis: hand over where the
+       law is undefined, read off the law, not off an approximation of it.
+       NB: the RL branch is still the DAgger clone of the OLD law.
+
+    3. *Immediate handover* (debounce measured and lost, on the old predicate):
+
+           latency:      0 ms   20 ms   40 ms   60 ms
+           k=1 (ship)    0.71    0.51    0.21    0.07
+           k=2           0.59    0.37    0.19    0.06
+           k=3           0.49    0.35    0.19    0.06
+
+       Genuine fallback regimes are 20-30-tick streaks, so a debounce is pure
+       delay against an 11 m/s missile. Pinned by
+       ``test_defender_handover_is_immediate``.
     """
     return [
-        # the scripted law has no answer here — it parks on a static gate point
-        ("intercept_infeasible", lambda f, t: not f.intercept_feasible, MODE_RL),
+        # the scripted law itself has no intercept — it parks on a static gate point
+        ("scripted_fallback", lambda f, t: f.scripted_fallback, MODE_RL),
         # kept for legibility in Groot2: this is the regime scripted owns outright
-        ("clean_intercept", lambda f, t: f.intercept_feasible and f.intercept_ahead,
+        ("clean_intercept", lambda f, t: (not f.scripted_fallback) and f.intercept_ahead,
          MODE_SCRIPTED),
     ]
 
@@ -200,7 +208,7 @@ def _attacker_predicates():
     harder" — it is that the defender's scripted law has a regime where it is
     **structurally undefined** (no positive intercept root, so it parks on a
     static gate point) and the missile's guidance law has no such regime. A
-    committed run-in is precisely the case a proportional-navigation law is for.
+    committed run-in is precisely the case a lead-guidance law is for.
 
     Generalised, that is the project's main transferable claim: hand a regime to
     the policy where the scripted controller is *undefined*, not merely where it
@@ -240,8 +248,8 @@ BRANCH_READS = {
         "threat_closing_fast": [("closing_rate", ">", "closing_fast")],
     },
     "defender": {
-        "intercept_infeasible": [("intercept_feasible", "is", False)],
-        "clean_intercept": [("intercept_feasible", "is", True),
+        "scripted_fallback": [("scripted_fallback", "is", True)],
+        "clean_intercept": [("scripted_fallback", "is", False),
                             ("intercept_ahead", "is", True)],
     },
     "attacker": {
@@ -326,7 +334,14 @@ class GatedController(BaseController):
         return "default", MODE_SCRIPTED
 
     def act(self, view: TeamView) -> np.ndarray:
-        scripted_a = np.asarray(self.scripted.act(view), dtype=np.float64).reshape(-1, 3)
+        # A scripted law that can report its own regime (GuardDefenders.plan)
+        # is asked once per tick; the flags feed `scripted_fallback`.
+        plan = getattr(self.scripted, "plan", None)
+        if plan is not None:
+            scripted_a, fallback = plan(view)
+        else:
+            scripted_a, fallback = self.scripted.act(view), None
+        scripted_a = np.asarray(scripted_a, dtype=np.float64).reshape(-1, 3)
         rl_a = np.asarray(self.rl.act(view), dtype=np.float64).reshape(-1, 3)
         n_self = view.self_pos.shape[0]
         out = np.zeros((n_self, 3))
@@ -337,6 +352,8 @@ class GatedController(BaseController):
             if not view.self_alive[i]:
                 continue
             features = agent_features(view, i)
+            if fallback is not None:
+                features.scripted_fallback = bool(fallback[i])
             nsbb.set("features", features)
             nsbb.set("thresholds", self.thresholds)
             nsbb.set("mode", MODE_SCRIPTED)

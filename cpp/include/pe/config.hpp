@@ -45,6 +45,12 @@ struct SafetyConfig {
   double z_margin = 0.75;
   double speed_limit_frac = 0.98;
   double correction_gain = 2.0;
+  // Fence look-ahead (s): one control period + braking time v/2a. 0 = position-
+  // only. 0.15 from the sweep in safety.py:SafetyConfig (tag overrun 0.77 -> 0.23 m,
+  // wall contacts 11 -> 0, win 0.460 -> 0.425 n.s.).
+  double brake_horizon_s = 0.15;
+  // Shrink unfenced axes, never the inward correction, when |cmd| > 1.
+  bool keep_fence_authority = true;
 };
 
 // Mirrors src/pursuit_evasion/bt/gating.py:GateThresholds

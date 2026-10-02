@@ -15,6 +15,11 @@ namespace pe {
 // whole air-defence game (see GuardDefenders).
 std::optional<double> lead_intercept_time(Vec3 rel_pos, Vec3 evader_vel, double vp);
 Vec3 lead_intercept_dir(Vec3 rel_pos, Vec3 evader_vel, double vp);
+// Mirrors pursuers.py:lead_intercept_time_sphere — reach the target's
+// radius-sphere, not its centre: |rel + v t| = vp t + radius. radius <= 0 is
+// exactly lead_intercept_time.
+std::optional<double> lead_intercept_time_sphere(Vec3 rel_pos, Vec3 evader_vel, double vp,
+                                                 double radius);
 std::vector<int> assign_targets(const std::vector<Vec3>& p_pos,
                                 const std::vector<Vec3>& e_pos,
                                 const std::vector<char>& live);
@@ -45,8 +50,16 @@ struct GuardDefenders : Controller {
   double standoff = 9.0;         // gate distance from the asset (m)
   double min_standoff = 3.5;
   double patrol_radius = 6.0;
+  double intercept_radius = 0.7;  // solve against this sphere, not the point (0 = legacy)
   GuardDefenders() { name = "scripted_defenders"; }
   std::vector<double> act(const TeamView& v) override;
+  // Mirrors defenders.py:plan — the action plus, per agent, whether this law is
+  // in its gate-point fallback (no intercept for its assigned threat). The gate
+  // hands over on exactly this flag.
+  std::vector<double> plan(const TeamView& v, std::vector<char>& fallback) const;
+  std::optional<double> intercept_time(Vec3 rel, Vec3 vel, double vp) const {
+    return lead_intercept_time_sphere(rel, vel, vp, intercept_radius);
+  }
 
   Vec3 gate_point(Vec3 att_pos, Vec3 asset) const;
   std::vector<int> assign(const TeamView& v, Vec3 asset) const;

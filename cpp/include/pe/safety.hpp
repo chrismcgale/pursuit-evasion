@@ -28,26 +28,56 @@ inline Violation filter_action(Vec3 pos, Vec3 vel, Vec3& action, double vmax,
   double lo[3] = {lo_xy, lo_xy, z_min + cfg.z_margin};
   double hi[3] = {hi_xy, hi_xy, z_max - cfg.z_margin};
 
+  // Acts on the predicted position too: a position-only fence fires a whole
+  // control period late and then still needs braking distance (see safety.py).
+  bool fenced[3] = {false, false, false};
   for (int ax = 0; ax < 3; ++ax) {
+    const double pred = pos[ax] + cfg.brake_horizon_s * vel[ax];
     if (pos[ax] >= hi[ax]) {
       double over = pos[ax] - hi[ax];
       action[ax] = std::min(action[ax], 0.0) - cfg.correction_gain * over;
-      v.geofence = true;
+      fenced[ax] = true;
     } else if (pos[ax] <= lo[ax]) {
       double under = lo[ax] - pos[ax];
       action[ax] = std::max(action[ax], 0.0) + cfg.correction_gain * under;
-      v.geofence = true;
+      fenced[ax] = true;
+    } else if (pred > hi[ax]) {
+      action[ax] = std::min(action[ax], 0.0) - cfg.correction_gain * (pred - hi[ax]);
+      fenced[ax] = true;
+    } else if (pred < lo[ax]) {
+      action[ax] = std::max(action[ax], 0.0) + cfg.correction_gain * (lo[ax] - pred);
+      fenced[ax] = true;
     }
   }
+  v.geofence = fenced[0] || fenced[1] || fenced[2];
 
   double speed = norm(vel);
   double limit = cfg.speed_limit_frac * vmax;
   if (speed > limit && speed > 1e-6) {
-    Vec3 vhat = vel * (1.0 / speed);
+    Vec3 vhat = vel / speed;
     double along = dot(action, vhat);
     if (along > 0) {
       action = action - along * vhat;
       v.speed = true;
+    }
+  }
+  for (int k = 0; k < 3; ++k) action[k] = clamp(action[k], -1.0, 1.0);
+  // Keep the fence's authority through apply_dynamics' unit-norm clip: shrink
+  // the unfenced axes, never the inward correction.
+  if (cfg.keep_fence_authority && v.geofence) {
+    const double n2 = action[0] * action[0] + action[1] * action[1] + action[2] * action[2];
+    if (n2 > 1.0) {
+      double f2 = 0.0;
+      for (int ax = 0; ax < 3; ++ax)
+        if (fenced[ax]) f2 += action[ax] * action[ax];
+      if (f2 >= 1.0) {
+        const double f = std::sqrt(f2);
+        for (int ax = 0; ax < 3; ++ax) action[ax] = fenced[ax] ? action[ax] / f : 0.0;
+      } else {
+        const double k = std::sqrt((1.0 - f2) / (n2 - f2));
+        for (int ax = 0; ax < 3; ++ax)
+          if (!fenced[ax]) action[ax] = action[ax] * k;
+      }
     }
   }
   for (int k = 0; k < 3; ++k) action[k] = clamp(action[k], -1.0, 1.0);

@@ -46,6 +46,12 @@ GATE_CONDITION(ThreatClosingFast, f.closing_rate > t.closing_fast)
 // by measurement: debouncing it k ticks was a dose-response loss (0.71/0.59/0.49
 // at perfect link for k=1/2/3) recovering nothing under latency — see
 // _defender_predicates' docstring in gating.py for the full table.
+// Shipped: hand over exactly when the defender law itself is in its gate-point
+// fallback (GuardDefenders::plan). InterceptInfeasible below was the proxy it
+// replaced — point solve, nearest threat — and over the sphere-solving law it
+// LOSES (-0.13 assault); kept registered so that ablation reproduces from Groot2.
+GATE_CONDITION(ScriptedFallback, f.scripted_fallback)
+GATE_CONDITION(CleanInterceptScripted, !f.scripted_fallback && f.intercept_ahead)
 GATE_CONDITION(InterceptInfeasible, !f.intercept_feasible)
 GATE_CONDITION(ThreatImminent, f.threat_time < t.threat_imminent)
 GATE_CONDITION(DefenderCloseQuarters, f.dist_nearest < t.defender_close)
@@ -75,6 +81,8 @@ void register_gate_nodes(BT::BehaviorTreeFactory& f) {
   f.registerNodeType<CleanIntercept>("CleanIntercept");
   f.registerNodeType<ThreatClose>("ThreatClose");
   f.registerNodeType<ThreatClosingFast>("ThreatClosingFast");
+  f.registerNodeType<ScriptedFallback>("ScriptedFallback");
+  f.registerNodeType<CleanInterceptScripted>("CleanInterceptScripted");
   f.registerNodeType<InterceptInfeasible>("InterceptInfeasible");
   f.registerNodeType<ThreatImminent>("ThreatImminent");
   f.registerNodeType<DefenderCloseQuarters>("DefenderCloseQuarters");

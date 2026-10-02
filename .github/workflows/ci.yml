@@ -48,8 +48,17 @@ jobs:
       - name: C++ unit tests
         run: ./cpp/build/pe_tests
 
+      # Every game, both stacks: scripted-vs-scripted covers dynamics/capture/
+      # breach/both scripted laws; bt_safe covers features, the gate (py_trees vs
+      # the shipped BT.CPP XML), the shield and the committed ONNX policy. All six
+      # are exact (|dchecksum| = 0, identical RL ticks and violation counts).
       - name: Cross-runtime parity
         run: |
-          uv run pe-parity | tee /tmp/parity_py.txt
-          (cd cpp && ./build/pe_run --parity) | tee /tmp/parity_cpp.txt
-          uv run python scripts/check_parity.py /tmp/parity_py.txt /tmp/parity_cpp.txt
+          set -e
+          for game in tag assault escort; do
+            for ctrl in scripted bt_safe; do
+              uv run pe-parity --game "$game" --controller "$ctrl" | tee /tmp/py.txt
+              (cd cpp && ./build/pe_run --parity --game "$game" --controller "$ctrl") | tee /tmp/cpp.txt
+              uv run python scripts/check_parity.py /tmp/py.txt /tmp/cpp.txt
+            done
+          done

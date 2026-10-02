@@ -94,3 +94,18 @@ def test_agent_features_sane():
     f = agent_features(pv, 0)
     assert f.dist_nearest == pytest.approx(2.0, abs=1e-6)
     assert f.n_live_others == 2
+
+
+def test_safety_fence_brakes_before_the_face():
+    pos, vel = np.array([10.9, 0, 3.0]), np.array([5.0, 0, 0])
+    a, v = filter_action(pos, vel, np.array([1.0, 0, 0]), 5.25, 12.0, 0.5, 12.0, SafetyConfig())
+    assert v.geofence and a[0] < 0
+    legacy = SafetyConfig(brake_horizon_s=0.0, keep_fence_authority=False)
+    _, v = filter_action(pos, vel, np.array([1.0, 0, 0]), 5.25, 12.0, 0.5, 12.0, legacy)
+    assert not v.geofence
+
+
+def test_safety_fence_keeps_authority_through_the_norm_clip():
+    a, _ = filter_action(np.array([12.0, 0, 3]), np.zeros(3), np.array([1.0, 1, 1]),
+                         5.25, 12.0, 0.5, 12.0, SafetyConfig())
+    assert np.linalg.norm(a) <= 1 + 1e-12 and abs(a[0] + 1.0) < 1e-12

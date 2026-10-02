@@ -24,6 +24,9 @@ struct AgentFeatures {
   double threat_time = std::numeric_limits<double>::infinity();  // secs until it is reached
   bool intercept_feasible = true;   // a positive lead-intercept solution exists
   double fuel = 1.0;                // own remaining burn fraction
+  // GuardDefenders::plan's own regime flag — set by GatedController, never
+  // recomputed here (mirrors features.py:AgentFeatures.scripted_fallback).
+  bool scripted_fallback = false;
 };
 
 // Exact mirror of features.py:_pairwise / agent_features (others == opponents).

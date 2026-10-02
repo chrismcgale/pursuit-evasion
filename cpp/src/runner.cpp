@@ -47,10 +47,13 @@ std::string default_tree(const std::string& game, bool pursuer_side) {
   return pursuer_side ? "trees/gate_defenders.xml" : "trees/gate_attackers.xml";
 }
 
-// Model stem convention shared with eval/games.py:_model_stems.
+// Model stem convention shared with eval/games.py:_model_stems, which routes the
+// gate to the LAST stem that exists — pursuer_dagger for tag. (This used to
+// default to pursuer.onnx, the 0%-capture self-play policy, so a tag `--controller
+// bt` run silently gated a different policy than Python's bt_gated.)
 std::string default_onnx(const std::string& game, bool pursuer_side) {
   if (game == "tag")
-    return pursuer_side ? "../models/pursuer.onnx" : "../models/evader.onnx";
+    return pursuer_side ? "../models/pursuer_dagger.onnx" : "../models/evader.onnx";
   return "../models/" + game + "_dagger.onnx";
 }
 
@@ -106,38 +109,75 @@ ShieldedController* as_shield(Controller* c) {
   return dynamic_cast<ShieldedController*>(c);
 }
 
-// Fixed start configurations shared with the Python parity check. Running
-// scripted-vs-scripted from identical starts must match Python bit-for-bit
-// (same libmujoco, same ctrl) — isolating logic bugs from RNG differences.
-// Tag-only: the objective games use --starts-file for the same purpose.
-std::vector<Starts> parity_starts() {
-  return {
-      {{"pursuer0", {-8, 1, 3}}, {"pursuer1", {-8, -1, 3}}, {"evader0", {8, 1, 3}}, {"evader1", {8, -1, 4}}},
-      {{"pursuer0", {-6, 3, 2}}, {"pursuer1", {-7, -2, 5}}, {"evader0", {6, -3, 3}}, {"evader1", {7, 2, 4}}},
-      {{"pursuer0", {-9, 0, 4}}, {"pursuer1", {-5, 4, 2}}, {"evader0", {5, 0, 5}}, {"evader1", {8, -4, 3}}},
-      {{"pursuer0", {-4, -4, 3}}, {"pursuer1", {-8, 2, 6}}, {"evader0", {7, 3, 2}}, {"evader1", {4, -2, 5}}},
-      {{"pursuer0", {-7, -3, 5}}, {"pursuer1", {-6, 1, 3}}, {"evader0", {6, 4, 4}}, {"evader1", {9, -1, 2}}},
+// Fixed start configurations shared with eval/parity.py:PARITY_STARTS — one set
+// per game. Running from identical starts must match Python bit-for-bit (same
+// libmujoco, same ctrl, same ONNX file + ORT version), isolating logic bugs from
+// RNG differences.
+std::vector<Starts> parity_starts(const std::string& game) {
+  auto S = [](Vec3 p0, Vec3 p1, Vec3 e0, Vec3 e1) {
+    return Starts{{"pursuer0", p0}, {"pursuer1", p1}, {"evader0", e0}, {"evader1", e1}};
   };
+  if (game == "assault")   // asset at the origin, raid ~30 m out, CAP within 9 m
+    return {S({6, 0, 4}, {-5, 3, 5}, {30, 5, 10}, {-28, -12, 8}),
+            S({0, 7, 3}, {4, -6, 6}, {5, 32, 12}, {-20, -25, 7}),
+            S({-6, -2, 5}, {7, 4, 2}, {31, -8, 6}, {-31, 6, 14}),
+            S({3, 5, 7}, {-4, -5, 3}, {-10, 30, 9}, {12, -30, 11}),
+            S({8, 1, 4}, {-2, 8, 6}, {25, 20, 13}, {-25, -20, 5})};
+  if (game == "escort")    // convoy starts at (-32, 0, 1.5); raid waits downrange
+    return {S({-26, 3, 4}, {-30, -6, 5}, {28, 10, 10}, {25, -15, 8}),
+            S({-25, -4, 3}, {-36, 5, 6}, {30, 0, 12}, {20, 20, 7}),
+            S({-28, 6, 5}, {-34, -3, 2}, {15, 25, 6}, {29, -5, 14}),
+            S({-24, 0, 7}, {-38, 2, 3}, {22, -22, 9}, {31, 8, 11}),
+            S({-30, 8, 4}, {-27, -7, 6}, {10, 28, 13}, {26, -18, 5})};
+  return {S({-8, 1, 3}, {-8, -1, 3}, {8, 1, 3}, {8, -1, 4}),
+          S({-6, 3, 2}, {-7, -2, 5}, {6, -3, 3}, {7, 2, 4}),
+          S({-9, 0, 4}, {-5, 4, 2}, {5, 0, 5}, {8, -4, 3}),
+          S({-4, -4, 3}, {-8, 2, 6}, {7, 3, 2}, {4, -2, 5}),
+          S({-7, -3, 5}, {-6, 1, 3}, {6, 4, 4}, {9, -1, 2})};
 }
 
-int run_parity(Sim& sim) {
-  InterceptPursuers P;
-  FieldEvaders E;
-  auto starts = parity_starts();
+// controller: "scripted" (scripted vs scripted) or "bt_safe" (the shipped
+// Shielded(Gated) pursuer-slot stack vs the scripted opponent).
+int run_parity(Sim& sim, const std::string& game, const std::string& controller,
+               const std::string& onnx, const std::string& tree) {
+  ControllerPair pair = default_controllers(game);
+  std::unique_ptr<OnnxPolicy> policy;
+  std::unique_ptr<RLController> rl;
+  std::unique_ptr<GatedController> gate;
+  std::unique_ptr<ShieldedController> shield;
+  Controller* P = pair.pursuer.get();
+  if (controller == "bt_safe") {
+    policy = std::make_unique<OnnxPolicy>(onnx);
+    rl = std::make_unique<RLController>(policy.get());
+    gate = std::make_unique<GatedController>(Team::Pursuers, pair.pursuer.get(), rl.get(), tree);
+    shield = std::make_unique<ShieldedController>(gate.get());
+    P = shield.get();
+  } else if (controller != "scripted") {
+    std::fprintf(stderr, "[cpp] --parity supports scripted | bt_safe, not %s\n",
+                 controller.c_str());
+    return 2;
+  }
+  Controller* E = pair.evader.get();
+  auto starts = parity_starts(game);
   for (size_t k = 0; k < starts.size(); ++k) {
     sim.reset_with_starts(starts[k]);
+    P->reset();
+    E->reset();
     double checksum = 0.0;
     StepInfo info;
-    int step = 0;
     while (true) {
       TeamView pv = sim.view(Team::Pursuers), ev = sim.view(Team::Evaders);
-      info = sim.step(P.act(pv), E.act(ev));
+      info = sim.step(P->act(pv), E->act(ev));
       checksum += info.min_dist;
-      ++step;
       if (info.terminated || info.truncated) break;
     }
-    std::printf("[cpp-parity] cfg=%zu win=%d steps=%d checksum=%.6f\n", k,
-                info.all_captured ? 1 : 0, info.steps, checksum);
+    const int rl_ticks = gate ? gate->mode_counts["rl"] : 0;
+    const int geo = shield ? shield->filter.n_geofence : 0;
+    const int spd = shield ? shield->filter.n_speed : 0;
+    std::printf("[cpp-parity] game=%s ctrl=%s cfg=%zu win=%d steps=%d checksum=%.6f "
+                "rl=%d viol=%d/%d\n",
+                game.c_str(), controller.c_str(), k, info.pursuer_win ? 1 : 0, info.steps,
+                checksum, rl_ticks, geo, spd);
   }
   return 0;
 }
@@ -163,12 +203,10 @@ int main(int argc, char** argv) {
 
   Sim sim(a.arena, spec);
   if (has_flag(argc, argv, "--parity")) {
-    if (a.game != "tag") {
-      std::fprintf(stderr, "[cpp] --parity is tag-only; use --starts-file for %s\n",
-                   a.game.c_str());
-      return 2;
-    }
-    return run_parity(sim);
+    // --controller defaults to "bt" for evaluation runs; parity means scripted
+    // unless bt_safe is asked for explicitly
+    const std::string ctrl = a.controller == "bt_safe" ? "bt_safe" : "scripted";
+    return run_parity(sim, a.game, ctrl, a.onnx, a.tree);
   }
   Team test_team = test_pursuers ? Team::Pursuers : Team::Evaders;
 

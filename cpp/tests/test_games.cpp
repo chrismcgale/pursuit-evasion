@@ -131,23 +131,33 @@ TEST_CASE("drones never go spent — they have no finite burn") {
 
 // ------------------------------------------------------------------ gate nodes
 
-TEST_CASE("InterceptInfeasible fires exactly when no intercept solution exists") {
+TEST_CASE("ScriptedFallback hands over exactly on the law's own fallback flag") {
   auto f = obj_base();
-  f.intercept_feasible = false;
+  f.scripted_fallback = true;
   CHECK(route("gate_defenders.xml", f) == "rl");
-  f.intercept_feasible = true;
+  f.scripted_fallback = false;
+  CHECK(route("gate_defenders.xml", f) == "scripted");
+  // the retired proxy no longer routes anything on its own
+  f.intercept_feasible = false;
   CHECK(route("gate_defenders.xml", f) == "scripted");
 }
 
+TEST_CASE("sphere intercept: radius 0 is the point solve; >0 only ever helps") {
+  Vec3 rel{-2, 1, 0}, v{-11, 0, 0};
+  CHECK(lead_intercept_time_sphere(rel, v, 7.5, 0.0) == lead_intercept_time(rel, v, 7.5));
+  auto t = lead_intercept_time_sphere(Vec3{15, 2, 0}, Vec3{-11, 0, 0}, 7.5, 1.4);
+  REQUIRE(t.has_value());
+  CHECK(norm(Vec3{15, 2, 0} + Vec3{-11, 0, 0} * (*t)) <= 7.5 * (*t) + 1.4 + 1e-9);
+}
+
 // Pins the negative result of the debounce experiment (Python mirror:
-// test_games.py::test_defender_handover_is_immediate): requiring infeasibility
+// test_games.py::test_defender_handover_is_immediate): requiring the fallback
 // to persist k ticks before handover was a dose-response LOSS on the assault
 // latency axis (bt_gated 0.71/0.59/0.49 at perfect link for k=1/2/3, nothing
-// recovered under latency), because genuine infeasible regimes are 20-30-tick
+// recovered under latency), because genuine fallback regimes are 20-30-tick
 // streaks that do not flicker — a debounce is pure delay against an 11 m/s
-// missile. The first infeasible tick must hand over immediately. The missile
-// receding at 11 m/s from a 7.5 m/s defender has no positive lead-intercept
-// root — genuinely infeasible.
+// missile. The first fallback tick must hand over immediately. A missile
+// receding at 11 m/s from a 7.5 m/s defender is unreachable even to the sphere.
 namespace {
 struct ConstCtl : Controller {
   double v;
@@ -175,16 +185,20 @@ TeamView defender_view(double missile_vel_x) {
 }
 }  // namespace
 
-TEST_CASE("defender handover is immediate on the first infeasible tick") {
-  ConstCtl scripted(0.25), rl(-0.75);
-  GatedController gc(Team::Pursuers, &scripted, &rl,
+TEST_CASE("defender handover is immediate on the first fallback tick") {
+  GuardDefenders law;
+  ConstCtl rl(-0.75);
+  GatedController gc(Team::Pursuers, &law, &rl,
                      std::string(PE_TREES_DIR) + "/gate_defenders.xml");
-  TeamView infeasible = defender_view(11.0), feasible = defender_view(-11.0);
-  REQUIRE_FALSE(agent_features(infeasible, 0).intercept_feasible);
-  REQUIRE(agent_features(feasible, 0).intercept_feasible);
+  TeamView receding = defender_view(11.0), inbound = defender_view(-11.0);
+  std::vector<char> fb;
+  law.plan(receding, fb);
+  REQUIRE(fb[0]);
+  law.plan(inbound, fb);
+  REQUIRE_FALSE(fb[0]);
 
-  CHECK(gc.act(feasible)[0] == 0.25);     // feasible: scripted
-  CHECK(gc.act(infeasible)[0] == -0.75);  // first infeasible tick: RL
+  CHECK(gc.act(inbound)[0] == law.act(inbound)[0]);  // intercept: scripted
+  CHECK(gc.act(receding)[0] == -0.75);               // first fallback tick: RL
   CHECK(gc.mode_counts["rl"] == 1);
 }
 
@@ -197,7 +211,7 @@ TEST_CASE("defender gate does NOT hand close quarters to the policy") {
   auto f = obj_base();
   f.dist_nearest = 1.0;      // point blank
   f.threat_time = 0.2;       // and the asset is about to be hit
-  f.intercept_feasible = true;
+  f.scripted_fallback = false;
   CHECK(route("gate_defenders.xml", f) == "scripted");
 }
 

@@ -35,6 +35,10 @@ class AgentFeatures:
     threat_time: float = float("inf")       # seconds until the nearest threat reaches it
     intercept_feasible: bool = True         # a positive lead-intercept solution exists
     fuel: float = 1.0                       # own remaining burn fraction
+    # The defender law's OWN regime (GuardDefenders.plan): no intercept for its
+    # assigned threat, so it is parking on a gate point. Set by GatedController
+    # from the scripted controller, never recomputed here — see _defender_predicates.
+    scripted_fallback: bool = False
 
 
 def _pairwise(view: TeamView, i: int, others_pos, others_vel, others_alive):

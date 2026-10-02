@@ -24,9 +24,11 @@ and what is broken.*
    pinned by `test_defender_handover_is_immediate` in both runtimes. The
    negative result IS the design contribution — writeup §robustness should
    carry the k-table.
-4. **Gate-value vs policy-quality curve** — retention of DAgger checkpoints
-   exists in `models/history.json` lineage; sweep gate advantage as a function
-   of policy strength. Falsifiable prediction: gated-minus-scripted stays flat
+4. **Gate-value vs policy-quality curve** — NB (review 2026-09-30): there is
+   no DAgger checkpoint lineage — `models/history.json` is the self-play PPO
+   history and `dagger.py` overwrites one best checkpoint. Save per-iteration
+   checkpoints first, and retrain against the sphere-solving law (REVIEW #19).
+   Then sweep gate advantage as a function of policy strength. Falsifiable prediction: gated-minus-scripted stays flat
    (the gain is regime coverage, not policy quality) while policy-only rises.
 5. ~~Assault `control_rate` axis~~ **Done 2026-09-06** (REVIEW #5): gate edge
    holds at every period; dt=20 ms saturates every arm to 1.00. Still open
@@ -38,6 +40,7 @@ and what is broken.*
 7. Groot2: screenshot of the shipped trees + live-monitoring hookup.
 8. Repo hygiene: ~~CI~~ ~~remote~~ (done 2026-09-06: private
    `chrismcgale/pursuit-evasion`, CI green including cross-runtime parity).
+   ~~Parity for all games + gate~~, ~~models committed~~ (done 2026-09-30).
    Remaining: robustness figures in the writeup, explorer GIF in the README.
 
 ## Stage 1 — robustness layer hardening (mostly done, gaps remain)
@@ -80,8 +83,10 @@ and what is broken.*
     Vicon bridge in, per-aircraft BT+policy+shield tick, CRSF/ELRS out.
     The Stage-0 timing histogram says whether one process holds 4 aircraft
     at 100+ Hz.
-19. **Safety before first flight** (also a sim task now): inter-agent
-    separation constraint in the shield (REVIEW #12), hardware kill switch,
+19. **Safety before first flight** (also a sim task now): ~~brake-aware
+    geofence~~ (done 2026-09-30; re-derive `brake_horizon_s` = control period
+    + v/2a for the whoop airframe), inter-agent separation constraint in the
+    shield (REVIEW #12), hardware kill switch,
     geofence enforced below the ground station (FC-level), foam-walled volume,
     battery-sag cutoff. House rule applies: nothing physical happens without
     Chris's explicit go.
@@ -91,6 +96,10 @@ and what is broken.*
 
 ## Standing questions
 
+- **Revised 2026-09-30 (review):** with the sphere-solving defender law the
+  gate's edge is +0.03 at perfect link and zero from 20 ms on (assault, n=150);
+  the hardware recipe is **scripted + shield** regardless of volume quality. The
+  question below is answered for the OLD law only.
 - ~~Does the escalation fix (task 3) restore the gate at realistic latency?~~
   **Answered 2026-09-06: no — it destroys the gate at low latency and restores
   nothing.** Refined conclusion: the gate earns its +0.23 below ~30 ms of

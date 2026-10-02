@@ -4,6 +4,7 @@
 
 #include "pe/bt_nodes.hpp"
 #include "pe/features.hpp"
+#include "pe/scripted.hpp"
 
 namespace pe {
 
@@ -29,7 +30,11 @@ void GatedController::reset() {
 }
 
 std::vector<double> GatedController::act(const TeamView& v) {
-  std::vector<double> s = scripted_->act(v);
+  // A scripted law that reports its own regime (GuardDefenders::plan) is asked
+  // once per tick; its flags feed `scripted_fallback` (mirrors gating.py).
+  std::vector<char> fallback;
+  auto* law = dynamic_cast<GuardDefenders*>(scripted_);
+  std::vector<double> s = law ? law->plan(v, fallback) : scripted_->act(v);
   std::vector<double> r = rl_->act(v);
   int n = v.n_self();
   std::vector<double> out(n * 3, 0.0);
@@ -38,7 +43,9 @@ std::vector<double> GatedController::act(const TeamView& v) {
   bb->set("thresholds", thr_);
   for (int i = 0; i < n; ++i) {
     if (!v.self_alive[i]) continue;
-    bb->set("features", agent_features(v, i));
+    AgentFeatures f = agent_features(v, i);
+    if (law) f.scripted_fallback = fallback[i] != 0;
+    bb->set("features", f);
     bb->set("mode", std::string("scripted"));
     tree_->tickOnce();
     std::string mode = bb->get<std::string>("mode");

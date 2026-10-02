@@ -312,13 +312,69 @@ def test_attacker_gate_hands_over_nothing():
     assert [n for n, _, _ in _PREDICATES["attacker"]()] == ["committed"]
 
 
-def test_defender_gate_hands_off_when_intercept_is_infeasible():
+def test_defender_gate_hands_off_on_the_scripted_fallback():
     from pursuit_evasion.bt.gating import GateThresholds, _PREDICATES
     thr = GateThresholds()
     name, pred, mode = _PREDICATES["defender"]()[0]
     f = agent_features(PursuitEvasionCore(seed=0, game="assault").reset(seed=0)[0], 0)
-    f.intercept_feasible = False
-    assert name == "intercept_infeasible" and pred(f, thr) and mode == MODE_RL
+    f.scripted_fallback = True
+    assert name == "scripted_fallback" and pred(f, thr) and mode == MODE_RL
+    f.scripted_fallback = False
+    assert not pred(f, thr)
+
+
+def test_sphere_intercept_is_the_point_solve_at_zero_radius():
+    from pursuit_evasion.scripted.pursuers import (lead_intercept_time,
+                                                   lead_intercept_time_sphere)
+    rng = np.random.default_rng(0)
+    for _ in range(200):
+        rel, v = rng.normal(0, 10, 3), rng.normal(0, 8, 3)
+        assert lead_intercept_time_sphere(rel, v, 7.5, 0.0) == lead_intercept_time(rel, v, 7.5)
+
+
+def test_sphere_intercept_finds_kills_the_point_solve_calls_impossible():
+    """The review finding behind the 2026-09-30 defender change: against a
+    faster missile there is a band of geometry with NO point intercept that
+    still passes through the kill sphere, so the law must not call it undefined.
+    Every sphere solution must also genuinely reach the sphere."""
+    from pursuit_evasion.scripted.pursuers import (lead_intercept_time,
+                                                   lead_intercept_time_sphere)
+    rng = np.random.default_rng(1)
+    vp, R, rescued = 7.5, 1.4, 0
+    for _ in range(5000):
+        rel = rng.uniform(-15, 15, 3)
+        v = rng.normal(0, 1, 3)
+        v *= 11.0 / np.linalg.norm(v)                       # missile speed
+        t = lead_intercept_time_sphere(rel, v, vp, R)
+        if t is not None:
+            gap = np.linalg.norm(rel + v * t)
+            assert gap <= vp * t + R + 1e-6                  # really reaches it
+            rescued += lead_intercept_time(rel, v, vp) is None
+    assert rescued > 0, "sphere solve should rescue some point-infeasible geometry"
+
+
+def test_gate_hands_over_on_the_laws_own_regime_not_a_proxy():
+    """The gate reads GuardDefenders.plan's fallback flag, so it hands over
+    exactly when the law parks on a gate point — even where the old proxy
+    (point intercept of the NEAREST threat) would have said otherwise."""
+    from pursuit_evasion.env.core import TEAM_PURSUERS
+    from pursuit_evasion.scripted.defenders import GuardDefenders
+    core = PursuitEvasionCore(seed=0, game="assault")
+    law = GuardDefenders()
+    gc = GatedController(TEAM_PURSUERS, law, _ConstController(-0.75), game="assault")
+    for seed in range(5):
+        pv, ev = core.reset(seed=seed)
+        _, attackers = default_controllers("assault")
+        for _ in range(60):
+            s_act, fb = law.plan(pv)
+            out = gc.act(pv).reshape(-1, 3)
+            for i in range(out.shape[0]):
+                expect = -0.75 if fb[i] else s_act.reshape(-1, 3)[i][0]
+                assert out[i][0] == expect
+            r = core.step(out.reshape(-1), attackers.act(ev))
+            pv, ev = r.pursuer_view, r.evader_view
+            if r.terminated or r.truncated:
+                break
 
 
 class _ConstController:
@@ -357,33 +413,29 @@ def _defender_view(missile_vel_x):
 def test_defender_handover_is_immediate():
     """Pins the negative result of the debounce experiment (ROADMAP #3).
 
-    Requiring intercept infeasibility to persist k consecutive ticks before
-    handing over — the designed fix for the "escalates under degradation"
-    observation — was measured and LOST, as a clean dose-response on the
-    assault latency axis (n=150, paired seeds+corruption, bt_gated win rate):
+    Requiring the fallback regime to persist k consecutive ticks before handing
+    over was measured and LOST, as a clean dose-response on the assault latency
+    axis (n=150, paired seeds+corruption, bt_gated win rate, original law):
 
         latency:      0 ms   20 ms   40 ms   60 ms
         k=1 (ship)    0.71    0.51    0.21    0.07
         k=2           0.59    0.37    0.19    0.06
         k=3           0.49    0.35    0.19    0.06
 
-    Traces show genuine infeasible regimes are 20-30-tick streaks that do not
-    flicker at perfect link, so a debounce is pure delay — and (k-1) ticks of
-    delay against an 11 m/s missile decide episodes. The first infeasible tick
-    must therefore hand over immediately. Do not re-add a persistence
-    threshold without beating this table. C++ mirror in
-    cpp/tests/test_games.cpp.
+    Genuine fallback regimes are 20-30-tick streaks that do not flicker, so a
+    debounce is pure delay against an 11 m/s missile. The first fallback tick
+    must hand over immediately. C++ mirror in cpp/tests/test_games.cpp.
     """
     from pursuit_evasion.env.core import TEAM_PURSUERS
+    from pursuit_evasion.scripted.defenders import GuardDefenders
 
-    gc = GatedController(TEAM_PURSUERS, _ConstController(0.25),
-                         _ConstController(-0.75), game="assault")
-    infeasible, feasible = _defender_view(11.0), _defender_view(-11.0)
-    assert not agent_features(infeasible, 0).intercept_feasible
-    assert agent_features(feasible, 0).intercept_feasible
+    law = GuardDefenders()
+    gc = GatedController(TEAM_PURSUERS, law, _ConstController(-0.75), game="assault")
+    receding, inbound = _defender_view(11.0), _defender_view(-11.0)
+    assert law.plan(receding)[1][0] and not law.plan(inbound)[1][0]
 
-    assert gc.act(feasible)[0] == 0.25                    # feasible: scripted
-    assert gc.act(infeasible)[0] == -0.75                 # first infeasible tick: RL
+    assert gc.act(inbound)[0] == law.act(inbound)[0]       # intercept: scripted
+    assert gc.act(receding)[0] == -0.75                    # first fallback tick: RL
     assert gc.mode_counts[MODE_RL] == 1
 
 
@@ -403,7 +455,7 @@ def test_defender_gate_does_not_hand_close_quarters_to_the_policy():
 
     thr = GateThresholds()
     f = agent_features(PursuitEvasionCore(seed=0, game="assault").reset(seed=0)[0], 0)
-    f.intercept_feasible = True
+    f.scripted_fallback = False
     f.intercept_ahead = True
     f.dist_nearest = 1.0     # point blank
     f.threat_time = 0.2      # and the asset is about to be hit
@@ -414,7 +466,7 @@ def test_defender_gate_does_not_hand_close_quarters_to_the_policy():
         f"defender gate routed a close-in feasible intercept to RL: {fired}")
     # and the profile stays at the two measured branches
     assert [n for n, _, _ in _PREDICATES["defender"]()] == [
-        "intercept_infeasible", "clean_intercept"]
+        "scripted_fallback", "clean_intercept"]
 
 
 @pytest.mark.parametrize("key", ["assault", "escort"])

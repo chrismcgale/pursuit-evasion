@@ -1,8 +1,80 @@
 # REVIEW — state of the project and known issues
 
-*As of 2026-09-06 (commit `c2bc99b` + robustness data landed). This document and
-`ROADMAP.md` are the session-carrying context: read these two, `CLAUDE.md`
-(invariants), and the runbook skill before touching anything.*
+*As of 2026-09-30 (deep review + follow-ups on branch `review-followups`). This
+document and `ROADMAP.md` are the session-carrying context: read these two,
+`CLAUDE.md` (invariants), and the runbook skill before touching anything.*
+
+## 2026-09-30 deep review — what changed and why
+
+A full read of both runtimes plus targeted experiments (scratch scripts, all
+paired, n=150-200). Four findings changed shipped semantics; every one landed in
+both runtimes with all six parity combinations exact.
+
+1. **The defender gate's "undefined regime" was mostly a scripted-law bug.**
+   `lead_intercept_time` solved for a *point* intercept; a kill needs only the
+   1.4 m capture sphere. `GuardDefenders` now solves against a 0.7 m sphere.
+   And the gate's `intercept_infeasible` was a proxy (nearest threat, root
+   existence) that disagreed with the law's own switch (assigned threat,
+   `t_int <= t_asset`) on 14% of handovers and 37% of fallback ticks; the gate
+   now reads `GuardDefenders.plan()`'s own flag (`scripted_fallback`).
+   Held-out seeds 20000+, n=200, defender win rate:
+
+   | | assault | escort |
+   |---|---|---|
+   | old scripted | 0.525 | 0.440 |
+   | old scripted + old gate (was shipped) | 0.730 | 0.495 |
+   | sphere scripted | 0.795 | 0.545 |
+   | sphere scripted + old proxy gate | loses −0.13 (blocks A+B) | loses −0.08 |
+   | **sphere scripted + aligned gate (shipped)** | **0.845** | **0.620** |
+
+   The thesis survives in a sharper, smaller form: the gate earns +0.05 /
+   +0.075 over its own (fixed) law, CIs exclude 0 — but most of the old +0.17
+   was a fix the scripted law could make itself, and gating on an
+   *approximation* of the law's regime over the fixed law is actively harmful.
+   R=0.7 was chosen on blocks 10000/110000 and confirmed on 20000.
+   **The RL branch is still the DAgger clone of the OLD law** (see #19).
+2. **Tag's cross-runtime "chaotic flips" were a bug, not chaos.** C++ computed
+   `v * (1.0/n)` where numpy computes `v / n` (unit, shield `vhat`, missile
+   `fwd`, obs, evader separation) — one ulp at tick 12 diverged a gated chase.
+   Now exact everywhere, including 200-episode tag bt_safe aggregate parity
+   (win 0.45, viol 6974/4397 identical).
+3. **CI now checks parity for every game × {scripted, bt_safe}.** Previously
+   tag scripted only — missile dynamics, substep capture, breach, both defence
+   laws, the BT.CPP gate, the shield and ONNX were never compared in CI. The
+   Python side runs the policy through the same ONNX file + ORT version.
+   `models/` is committed (3.3 MB) so this — and every headline — reproduces
+   from a clone. `pe_run`'s default tag ONNX was the 0%-capture self-play
+   `pursuer.onnx`, not the `pursuer_dagger` Python gates to; fixed.
+4. **Brake-aware geofence.** The fence was position-only (fires a control
+   period late, then needs braking distance > the 0.75 m margin) and the
+   downstream norm clip diluted its correction. Now acts on
+   `pos + 0.15 s * vel` and shrinks unfenced axes instead. Tag overrun
+   0.77 → 0.23 m, wall contacts 11 → 0/200, win 0.460 → 0.425 (n.s.;
+   swept, see `SafetyConfig`); defence overrun → ≤0.04 m, win unchanged.
+   **Under `field_degraded` it cannot help** (stale estimate; ~0.8 m overruns
+   persist) — the FC-level fence in ROADMAP #19 is still required.
+
+Checked and **not** a problem (recorded so nobody re-runs them):
+- Latency cliff is real: constant-velocity forward prediction of the delayed
+  estimate recovers only +0.01 (20 ms) to +0.12 (40 ms); scripted still 0.12
+  at 60 ms. But `latency_budget`'s "no controller of any kind" is too strong.
+- `dump_starts_file`'s `%.6f` rounding flips 0/200 tag outcomes.
+
+Post-review headline (`pe-games`, seeds 10000+, n=200): tag 0.46 / gated 0.19 /
++shield 0.42; assault 0.77 / 0.80 / 0.81; escort 0.49 / 0.53 / **0.47** — note
+the shield now *costs* escort 0.06 (the fence change itself was measured
+neutral there, 0.460 → 0.465, so suspect the speed cap; unpaired, check it).
+**Robustness, re-run on the new semantics (assault, n=150, seeds 20000+,
+paired):** the gate's edge is +0.027 at perfect link, +0.013 (n.s.) on
+`vicon_lab`, and exactly zero from 20 ms of state latency on. The old headline
+"gate advantage survives a well-run Vicon volume (+0.16)" **no longer holds** —
+it was the old law's weakness surviving, not the gate. What changed instead:
+the fixed scripted law degrades far more gracefully (40 ms: 0.49, was 0.19;
+60 ms: 0.27, was 0.05), and the shield is the load-bearing mitigation
+(+0.13 at 60 ms, +0.21 at 80 ms, CIs exclude 0). Hardware recipe is now simply
+**scripted + shield**; the gate is a perfect-link refinement.
+(`robust_assault_{latency,presets}.json`; other axes still pre-review, #22.)
+Pre-review result JSONs are preserved in `results/pre-review-2026-09-30/`.
 
 ## What exists
 
@@ -17,6 +89,10 @@ link layer (`env/link.py`: Vicon/ELRS/whoop failure modes). 71 Python tests,
 32 C++ test cases, all green.
 
 ## Headline results (n=200, perfect link, `results/games.json`)
+
+> **Superseded 2026-09-30** — the table below is pre-review (old defender law,
+> old gate, position-only fence). Current numbers: `writeup/when-each-wins.md`
+> §6 (autofilled by `pe-games`) and the review section above.
 
 | | scripted | best learned | BT-gated | + shield |
 |---|---|---|---|---|
@@ -103,13 +179,34 @@ Core claims, each measured not assumed:
     remaining sim-to-real gap (ROADMAP stage 2) and the declared reason the
     robustness layer came first.
 
+**Found by the 2026-09-30 review, still open**
+19. **The defender policy imitates the old law.** `assault_dagger` /
+    `escort_dagger` are pure DAgger clones of the point-solve `GuardDefenders`;
+    in the fallback regime they reproduce a smoothed version of the very law
+    the gate bypasses. Retrain against the sphere law (or under the link,
+    ROADMAP #11) before reading anything into the residual +0.05.
+20. **Each gated agent gets an action from a team-joint policy** trained to
+    drive both agents; mixed scripted/RL ticks are out of its training
+    distribution.
+21. **Captured agents coast, they do not freeze** (ctrl zeroed, velocity decays
+    with tau ~0.25 s; one captured mid-step keeps thrusting until the step
+    ends). Breach is checked once per control step but capture every substep,
+    so a capture can pre-empt an earlier in-step breach (slightly pro-defender).
+22. Robustness axes other than assault latency/presets were measured on the
+    pre-review semantics — rerun before quoting (`pe-robust --axis all`).
+    ~135 per-point CIs, no multiple-comparison correction; the control-rate
+    axis runs policies at periods they were not trained at.
+23. Writeup/attacker docstrings called the missile law "proportional
+    navigation" — it is lead guidance + bearing split + terminal break (fixed
+    in code; check any new prose).
+
 **Architecture**
 11. **The link layer is Python-only.** The C++ runtime cannot run degraded
     evals. Parity is unaffected (PERFECT bypasses bit-identically) but the
     "production runtime" story now lags the research one. Mirroring `link.py`
     + seeded-corruption parity is ROADMAP #10.
-12. **The safety filter has no inter-agent separation** — geofence + speed cap
-    only. For 2-4 real airframes in one room this is the *first* missing
+12. **The safety filter has no inter-agent separation** — geofence (now
+    brake-aware, see review #4) + speed cap only. For 2-4 real airframes in one room this is the *first* missing
     constraint, and "capture" currently commands near-contact.
 13. The gate reads raw features with no estimate-quality input. The
     k-tick-persistence fix was built, measured and **reverted** (see the
@@ -151,7 +248,8 @@ Core claims, each measured not assumed:
 - `eval/trace.py` / `eval/explorer.py` — per-tick recorder (`--link`) and the
   self-contained HTML viewer.
 - `cpp/` — mirrored runtime; **any semantic change must land in both and pass
-  `pe-parity` vs `pe_run --parity`** (CLAUDE.md invariant).
+  `pe-parity` vs `pe_run --parity` for every `--game` × `--controller
+  scripted|bt_safe`** (CLAUDE.md invariant; CI runs all six).
 - Tests that pin findings: `test_attacker_gate_hands_over_nothing` (×2
   runtimes), `test_perfect_link_is_a_no_op`,
   `test_tag_control_period_exceeds_its_own_latency_budget`,
