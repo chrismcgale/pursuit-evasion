@@ -14,6 +14,7 @@
 
 #include "pe/games.hpp"
 #include "pe/gate.hpp"
+#include "pe/link.hpp"
 #include "pe/onnx_policy.hpp"
 #include "pe/safety.hpp"
 #include "pe/scripted.hpp"
@@ -105,8 +106,32 @@ struct EpRec {
   double asset_margin;   // closest any live attacker ever got to the asset
 };
 
+// Look through a link wrapper: Linked(Shielded(gate)) is the deployment order.
+Controller* unlink(Controller* c) {
+  auto* l = dynamic_cast<LinkedController*>(c);
+  return l ? l->inner : c;
+}
 ShieldedController* as_shield(Controller* c) {
-  return dynamic_cast<ShieldedController*>(c);
+  return dynamic_cast<ShieldedController*>(unlink(c));
+}
+
+// --link <preset> [--link-tape <file> | --link-seed <n>]. A tape (written by
+// link.py:write_tape) reproduces Python's corruption exactly; without one the
+// native generator is statistically equivalent but not paired with Python.
+struct LinkArgs {
+  LinkProfile profile;
+  std::string tape;
+  uint64_t seed = 4242;
+};
+std::unique_ptr<Controller> wrap_link(Controller* c, const LinkArgs& L, double dt) {
+  std::unique_ptr<DrawSource> src;
+  if (!L.profile.is_perfect()) {
+    if (!L.tape.empty())
+      src = std::make_unique<TapeSource>(L.tape, L.profile);
+    else
+      src = std::make_unique<NativeSource>(L.profile, L.seed);
+  }
+  return std::make_unique<LinkedController>(c, L.profile, std::move(src), dt);
 }
 
 // Fixed start configurations shared with eval/parity.py:PARITY_STARTS — one set
@@ -140,7 +165,7 @@ std::vector<Starts> parity_starts(const std::string& game) {
 // Shielded(Gated) pursuer-slot stack vs the scripted opponent).
 int run_parity(Sim& sim, const std::string& game, const std::string& controller,
                const std::string& onnx, const std::string& tree,
-               const SafetyConfig& safety) {
+               const SafetyConfig& safety, const LinkArgs& link) {
   ControllerPair pair = default_controllers(game);
   std::unique_ptr<OnnxPolicy> policy;
   std::unique_ptr<RLController> rl;
@@ -157,6 +182,13 @@ int run_parity(Sim& sim, const std::string& game, const std::string& controller,
     std::fprintf(stderr, "[cpp] --parity supports scripted | bt_safe, not %s\n",
                  controller.c_str());
     return 2;
+  }
+  // The link wraps the pursuer-slot stack only, in deployment order; the
+  // opponent flies a perfect link (as in every Python sweep).
+  std::unique_ptr<Controller> linked;
+  if (!link.profile.is_perfect()) {
+    linked = wrap_link(P, link, sim.dt());
+    P = linked.get();
   }
   Controller* E = pair.evader.get();
   auto starts = parity_starts(game);
@@ -210,13 +242,17 @@ int main(int argc, char** argv) {
   // Shield options. --separation <m> turns on own-team separation (default off).
   SafetyConfig safety;
   safety.separation_m = std::stod(arg_val(argc, argv, "--separation", "0"));
+  LinkArgs link;
+  link.profile = link_preset(arg_val(argc, argv, "--link", "perfect"));
+  link.tape = arg_val(argc, argv, "--link-tape", "");
+  link.seed = std::stoull(arg_val(argc, argv, "--link-seed", "4242"));
 
   Sim sim(a.arena, spec);
   if (has_flag(argc, argv, "--parity")) {
     // --controller defaults to "bt" for evaluation runs; parity means scripted
     // unless bt_safe is asked for explicitly
     const std::string ctrl = a.controller == "bt_safe" ? "bt_safe" : "scripted";
-    return run_parity(sim, a.game, ctrl, a.onnx, a.tree, safety);
+    return run_parity(sim, a.game, ctrl, a.onnx, a.tree, safety, link);
   }
   Team test_team = test_pursuers ? Team::Pursuers : Team::Evaders;
 
@@ -246,6 +282,14 @@ int main(int argc, char** argv) {
     }
   }
 
+  if (!link.profile.is_perfect()) {
+    owned.push_back(wrap_link(tested, link, sim.dt()));
+    tested = owned.back().get();
+    std::printf("[cpp] link=%s (%s)\n", link.profile.name.c_str(),
+                link.tape.empty() ? "native generator, not paired with Python"
+                                  : ("tape " + link.tape).c_str());
+  }
+
   // opponent is always the scripted baseline of the other side
   ControllerPair opp_pair = default_controllers(a.game);
   Controller* opponent =
@@ -267,7 +311,7 @@ int main(int argc, char** argv) {
 
   // GatedController::reset() zeroes its own counters at the top of every episode,
   // so accumulate here — otherwise the reported mode split is just the last one.
-  Controller* unwrapped = as_shield(tested) ? as_shield(tested)->inner : tested;
+  Controller* unwrapped = as_shield(tested) ? as_shield(tested)->inner : unlink(tested);
   auto* gate_ctrl = dynamic_cast<GatedController*>(unwrapped);
   long ticks_scripted = 0, ticks_rl = 0;
 

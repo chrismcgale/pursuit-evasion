@@ -118,13 +118,32 @@ def _build(game_key: str, controller: str, onnx: str | None, separation: float =
 
 
 def run_parity(game_key: str = "tag", controller: str = "scripted",
-               onnx: str | None = None, separation: float = 0.0) -> list[dict]:
-    """Fixed starts for one game; returns one record per config."""
+               onnx: str | None = None, separation: float = 0.0,
+               link: str = "perfect", tape: str | None = None,
+               link_seed: int = 4242) -> list[dict]:
+    """Fixed starts for one game; returns one record per config.
+
+    With a degraded ``link`` the pursuer-slot stack is wrapped in
+    ``LinkedController(seed=link_seed)`` (deployment order) and, if ``tape`` is
+    given, the corruption it will draw is written there first for
+    ``pe_run --parity --link <preset> --link-tape <tape>`` to replay.
+    """
     from ..env.core import PursuitEvasionCore
+    from ..env.link import PRESETS, LinkedController, write_tape
 
     game = make_game(game_key)
     core = PursuitEvasionCore(game=game)
     pursuer, evader, gate = _build(game_key, controller, onnx, separation)
+    profile = PRESETS[link]
+    if not profile.is_perfect():
+        dt = game.arena.timestep * game.episode.control_repeat
+        pursuer = LinkedController(pursuer, profile, seed=link_seed, dt=dt)
+        if tape:
+            n = len(PARITY_STARTS[game_key])
+            # the constructor resets once, so start k runs on stream k + 1
+            write_tape(tape, profile, link_seed, range(1, n + 1),
+                       game.arena.n_pursuers, game.arena.n_evaders,
+                       game.episode.max_steps)
 
     out = []
     for k, starts in enumerate(PARITY_STARTS[game_key]):
@@ -162,9 +181,16 @@ def main(argv=None):
     p.add_argument("--onnx", default=None, help="policy for bt_safe (default per game)")
     p.add_argument("--separation", type=float, default=0.0,
                    help="own-team separation in the shield (m); 0 = off (shipped)")
+    p.add_argument("--link", default="perfect",
+                   help="link preset wrapping the pursuer-slot stack (env/link.py)")
+    p.add_argument("--tape", default=None,
+                   help="write the link's corruption tape here for pe_run --link-tape")
     args = p.parse_args(argv)
-    run_parity(args.game, args.controller, args.onnx, args.separation)
+    run_parity(args.game, args.controller, args.onnx, args.separation,
+               args.link, args.tape)
     sep = f" --separation {args.separation:g}" if args.separation > 0 else ""
+    if args.link != "perfect":
+        sep += f" --link {args.link}" + (f" --link-tape {args.tape}" if args.tape else "")
     print(f"[py-parity] compare against: (cd cpp && ./build/pe_run --parity "
           f"--game {args.game} --controller {args.controller}{sep})")
 
