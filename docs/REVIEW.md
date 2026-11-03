@@ -37,19 +37,19 @@ shipped models.
   changes nothing.
 - **Shield's escort cost is the speed cap** (paired, two blocks; headline
   section below).
-- **CI is red on `main` since 2026-11-03 13:14 (run 6), before any of this
-  session's changes:** the same commit `a734f87` passed on 2026-10-02. Tag
-  bt_safe parity fails on the runner (scripted parity is exact). The
-  runner now has AVX-512: `main`'s Python gave 1340.882892 on start 2 (the
-  OpenBLAS FMA value), and with PR #2's pin it gives 1340.887337, the value
-  both runtimes give on the cloud Xeon used here. CI's C++ binary gives a
-  third value, 1340.884633, in both runs, so a second, C++-side numerical
-  difference exists on that runner and could not be reproduced here. Suspects:
-  ONNX Runtime's MLAS kernel choice for that CPU (release tarball vs wheel)
-  or glibc libm's CPU-dispatched variants. Next step: one CI run with a
-  per-tick `%.17g` action dump on both sides (the 2026-09-30 method) to find
-  the first differing number. Until then, CI cannot confirm tag bt_safe
-  parity; every check here passes on the Xeon.
+- **CI was red on `main` from 2026-11-03 13:14 (run 6) until the
+  `-ffp-contract=off` fix; cause found.** The same commit `a734f87` passed
+  on 2026-10-02. The runner image changed to GCC 15.2, which targets FMA by
+  default (`__FMA__` defined), so it fused `a*b + c` in the C++ shield and
+  scripted math. A per-tick `%.17g` dump on a throwaway branch
+  (`claude/diag-tag-parity`, not merged) found the first difference at tick
+  11 of tag bt_safe start 1: pursuer 0's final command, x component,
+  -3.7196003941764033e-4 (Python) vs ...753099e-4 (C++), with observations
+  and policy outputs identical. The C++ build now passes
+  `-ffp-contract=off`; with it all six combinations are exact on CI (run 34,
+  EPYC 7763) and on the Xeon here. My two earlier suspects (ORT's MLAS kernel,
+  glibc libm dispatch) were wrong; the CPU also turned out to vary between
+  runs (EPYC 9V45 with AVX-512, EPYC 7763 without), and the fix holds on both.
 - **CI:** this session could not edit `.github/workflows` (token without
   `workflow` scope). New parity checks live in `scripts/ci_parity.sh`; the
   "Cross-runtime parity" step should call it (one-line edit, Chris).

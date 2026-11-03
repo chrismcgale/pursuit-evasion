@@ -118,6 +118,10 @@ native generator: same distributions, not paired with Python.
   `Vec3 operator/`. Find the tick with a temporary per-tick `%.17g` action dump
   on both sides (that is how the 2026-09-30 bug was found: tick 12, one ulp).
 
+- **Parity fails only in C++ on a new toolchain** — check whether the compiler
+  targets FMA (`echo | c++ -dM -E - | grep __FMA__`). If it does, it fuses
+  `a*b + c` unless told not to; `CMakeLists.txt` passes `-ffp-contract=off`
+  for that reason (2026-11-03: GCC 15.2 on the CI image). Don't drop it.
 - **Tag bt_safe parity fails on a new machine but scripted is exact** — check
   for AVX-512 (`grep avx512f /proc/cpuinfo`). OpenBLAS's AVX-512 `ddot` fuses
   multiply-adds, so numpy's 3-vector `a @ b` / `norm` differ from C++ in the
@@ -205,6 +209,13 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-11-03** **CI red was the C++ compiler fusing multiply-adds.** The
+  GitHub runner image moved to GCC 15.2, which targets FMA by default. A
+  per-tick dump on a throwaway branch found the first difference at tick 11
+  of tag bt_safe start 1, in the final command, one rounding apart; obs and
+  policy output identical. `-ffp-contract=off` in `cpp/CMakeLists.txt` makes
+  all six parity combinations exact on CI again.
 
 - **2026-11-03** **Defender gate hands over nothing (Chris's call).** After the
   adaptive fallback, no defender policy beat the law on a fresh block and the

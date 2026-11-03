@@ -8,6 +8,12 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# numpy never fuses a*b+c into one rounding. A compiler that targets FMA by
+# default (GCC 15 on the 2026-11 GitHub runner image) does, and the last bit of
+# the shield/scripted math then differs from the Python runtime. Keep this off
+# for the parity invariant in CLAUDE.md.
+add_compile_options(-ffp-contract=off)
+
 # --- MuJoCo: link the exact library the Python env uses (version-matched) -----
 # Defaults to the project venv; override with -DMUJOCO_ROOT=/path/to/mujoco
 set(MUJOCO_ROOT "${CMAKE_SOURCE_DIR}/../.venv/lib/python3.12/site-packages/mujoco"
