@@ -212,9 +212,67 @@ Core claims, each measured not assumed:
     evals. Parity is unaffected (PERFECT bypasses bit-identically) but the
     "production runtime" story now lags the research one. Mirroring `link.py`
     + seeded-corruption parity is ROADMAP #10.
-12. **The safety filter has no inter-agent separation** — geofence (now
-    brake-aware, see review #4) + speed cap only. For 2-4 real airframes in one room this is the *first* missing
-    constraint, and "capture" currently commands near-contact.
+12. **Own-team separation: built 2026-11-03, default off; separation from
+    opponents is open (Chris's decision).** `SafetyConfig.separation_m` keeps
+    live teammates apart, brake-aware like the fence (acts on
+    `(p_i + h v_i) - (p_j + h v_j)`), in both runtimes, parity exact on and off
+    (CI: tag 1.5 m, escort 5 m), 7 unit tests per side. Measured
+    (`scripts/analysis/separation_cost.py`, seeds 20000+, n=150, paired,
+    separation = 2x contact distance: tag 1.4 m, defence 2.0 m). "Contact" =
+    teammates closer than two agent radii at any tick (agents have no physical
+    collision in the sim, so this was invisible until now):
+
+    | game, link | arm | win off | win on | paired delta | contact episodes off -> on |
+    |---|---|---|---|---|---|
+    | tag, perfect | scripted+shield | 0.527 | 0.607 | +0.080 [+0.033, +0.127] | 0.50 -> 0.01 |
+    | tag, perfect | bt_gated_safe | 0.353 | 0.360 | +0.007 [-0.080, +0.087] | 0.73 -> 0.01 |
+    | tag, vicon_lab | scripted+shield | 0.513 | 0.547 | +0.033 [-0.020, +0.093] | 0.50 -> 0.08 |
+    | tag, vicon_lab | bt_gated_safe | 0.347 | 0.287 | -0.060 [-0.133, +0.013] | 0.70 -> 0.04 |
+    | assault, perfect | scripted+shield | 0.727 | 0.727 | 0.000 | 0.01 -> 0.01 |
+    | assault, perfect | bt_gated_safe | 0.767 | 0.760 | -0.007 [-0.020, 0.000] | 0.01 -> 0.01 |
+    | assault, vicon_lab | scripted+shield | 0.680 | 0.687 | +0.007 [0.000, +0.020] | 0.01 -> 0.01 |
+    | assault, vicon_lab | bt_gated_safe | 0.727 | 0.727 | 0.000 | 0.01 -> 0.01 |
+    | escort, perfect | scripted+shield | 0.513 | 0.507 | -0.007 [-0.027, +0.013] | 0.10 -> 0.00 |
+    | escort, perfect | bt_gated_safe | 0.600 | 0.593 | -0.007 [-0.033, +0.013] | 0.11 -> 0.00 |
+    | escort, vicon_lab | scripted+shield | 0.460 | 0.447 | -0.013 [-0.033, 0.000] | 0.07 -> 0.01 |
+    | escort, vicon_lab | bt_gated_safe | 0.587 | 0.580 | -0.007 [-0.033, +0.013] | 0.09 -> 0.00 |
+
+    Tag's scripted pursuers overlap each other in half of all episodes (both
+    converge on the last live evader; p10 of the closest approach is 0.03 m),
+    and keeping them apart *raises* capture by 8 points: two pursuers on two
+    sides of an evader beat two on top of each other. Defenders split across
+    threats and almost never meet (the assault 1% is a spawn overlap that
+    nothing can undo in one tick). Under `vicon_lab`, estimate noise lets 4-8%
+    of tag episodes still close inside 2r. No cell shows a significant loss.
+    **Recommendation: make it the default** (separation = 2x contact distance)
+    with the next headline re-run, since it moves the tag numbers; it is the
+    first constraint any 2-4 airframe flight needs. Not switched here so this
+    change moves no shipped number.
+
+    **Open — separation from opponents (Chris's decision).** Capture currently
+    *is* contact: tag's capture radius (0.7 m) equals two agent radii, and the
+    defence games' 1.4 m is 1.4x contact. Stopping distance from top speed
+    (one control period of reaction + full reverse thrust against drag): tag
+    0.53 + 0.40 = 0.93 m; defence 0.45 + 0.58 = 1.03 m. At whoop scale (5 m/s,
+    ~12 m/s^2 lateral at 50 deg tilt, ~0.2 s of control + link + attitude lag)
+    it is ~1.0 + 1.1 = 2.1 m, far above any sensible 0.3-0.5 m capture radius.
+    Options, none picked:
+    (a) *No opponent separation*; capture ends the engagement and both break
+        off. Contact risk on every capture, carried by prop guards, foam and
+        the kill switch. Keeps current semantics.
+    (b) *Brake-aware floor below the capture radius.* No contact by
+        construction if floor + stopping distance <= capture radius; at whoop
+        scale that forbids fast terminal approaches, so capture of a fleeing
+        target becomes rare. Measure before choosing.
+    (c) *Stand-off capture.* Raise the capture radius to stopping distance plus
+        a floor (~2 m at whoop scale) so "capture" is a virtual tag at range;
+        safe, changes what the game means, re-tune the 40-50% balance.
+    (d) *Altitude layering.* Teams hold separated altitude bands and capture
+        is judged in the horizontal plane; prevents contact by construction,
+        costs the vertical dimension in a ~2.5 m room.
+    (e) *Post-capture separation only*, combined with (a) or (c): the shield
+        separates from neutralised opponents so the pair breaks off; does not
+        protect the capture instant itself.
 13. The gate reads raw features with no estimate-quality input. The
     k-tick-persistence fix was built, measured and **reverted** (see the
     escalation bullet above — it loses everywhere). The remaining designed-not-
