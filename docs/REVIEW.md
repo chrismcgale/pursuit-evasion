@@ -1,8 +1,40 @@
 # REVIEW — state of the project and known issues
 
-*As of 2026-09-30 (deep review + follow-ups on branch `review-followups`). This
-document and `ROADMAP.md` are the session-carrying context: read these two,
-`CLAUDE.md` (invariants), and the runbook skill before touching anything.*
+*As of 2026-11-03 (phases 1-3 of the post-review plan, PRs #2-#8, stacked).
+This document and `ROADMAP.md` are the session-carrying context: read these
+two, `CLAUDE.md` (invariants), and the runbook skill before touching
+anything.*
+
+## 2026-11-03 session — what changed
+
+Semantics changed in nothing shipped: every new constraint is off by default,
+every new model sits beside the shipped ones, and all six default parity
+combinations stay exact.
+
+- **Parity is CPU-dependent through OpenBLAS (#24).** Pinned at import on
+  AVX-512 hosts, with a warning if numpy was imported first.
+- **Own-team separation in the shield (#12)**, both runtimes, default off,
+  recommended on. Tag pursuers overlapped in half of all episodes; separating
+  them raises capture +0.08. Opponent separation is Chris's decision (options
+  under #12).
+- **The link layer runs in C++ (#11, #14)** with exact parity through a
+  Python-written corruption tape.
+- **Defender retrain + gate value vs policy quality (#19, writeup §7.3).** The
+  gate's gain does not follow the policy's own quality; simple scripted
+  fallbacks explain much of it (assault pure pursuit +0.06; escort
+  predicted-asset gate point +0.08-0.10); escort's BC iteration 0 adds +0.25
+  on two blocks. Which models ship is Chris's decision.
+- **Robustness re-run and written up (writeup §8, #16, #22).** Recipe:
+  scripted + shield. The old "+0.16 on vicon_lab" is retracted. The
+  control-rate axis had a missile-burn artefact (#5). Training under the link
+  changes nothing.
+- **Shield's escort cost is the speed cap** (paired, two blocks; headline
+  section below).
+- **CI:** this session could not edit `.github/workflows` (token without
+  `workflow` scope). New parity checks live in `scripts/ci_parity.sh`; the
+  "Cross-runtime parity" step should call it (one-line edit, Chris).
+- **Timing (ROADMAP #6):** `pe_bench` per-stage histograms; see ROADMAP #6.
+- **Stage 2 proposal:** `docs/STAGE2.md`.
 
 ## 2026-09-30 deep review — what changed and why
 
@@ -64,6 +96,16 @@ Post-review headline (`pe-games`, seeds 10000+, n=200): tag 0.46 / gated 0.19 /
 +shield 0.42; assault 0.77 / 0.80 / 0.81; escort 0.49 / 0.53 / **0.47** — note
 the shield now *costs* escort 0.06 (the fence change itself was measured
 neutral there, 0.460 → 0.465, so suspect the speed cap; unpaired, check it).
+**Checked 2026-11-03, paired** (`scripts/analysis/escort_shield_paired.py`,
+n=200 on seeds 10000+ and 20000+, pooled n=400): shield on the gated stack
+-0.052 [-0.085, -0.020]; speed cap alone -0.040 [-0.072, -0.007]; fence alone
+-0.010 [-0.022, 0.000]; on the scripted law the shield costs -0.040
+[-0.075, -0.005]. The speed cap carries about four fifths of the cost. It
+fires on ~350 ticks per 200 episodes in escort and removes the accelerating
+component whenever a defender is above 0.98 v_max, which a crossing
+intercept against an 11 m/s missile needs. Not changed here: the cap is a
+safety limit, and whether escort should run with a higher cap fraction (or
+none, with the fence alone) is a safety decision, not a tuning one.
 **Robustness, re-run on the new semantics (assault, n=150, seeds 20000+,
 paired):** the gate's edge is +0.027 at perfect link, +0.013 (n.s.) on
 `vicon_lab`, and exactly zero from 20 ms of state latency on. The old headline
@@ -73,7 +115,18 @@ the fixed scripted law degrades far more gracefully (40 ms: 0.49, was 0.19;
 60 ms: 0.27, was 0.05), and the shield is the load-bearing mitigation
 (+0.13 at 60 ms, +0.21 at 80 ms, CIs exclude 0). Hardware recipe is now simply
 **scripted + shield**; the gate is a perfect-link refinement.
-(`robust_assault_{latency,presets}.json`; other axes still pre-review, #22.)
+**2026-11-03: every axis re-run on these semantics and written up (writeup
+§8, figures in `writeup/figures/`).** Additions: a `scripted + shield` arm
+(the recipe was never measured directly before); under the shield the
+defender gate adds a significant +0.04..+0.08 on every non-latency axis and
+never a negative delta, and nothing from ~30 ms of latency; from 40 ms the
+gated and scripted outcomes are identical episode for episode even though
+handover rises 11.5% -> 26%; the k-debounce re-measured on the current law
+still loses (k3-k1 = -0.027 at 0 ms, zero from 20 ms); one stale command
+frame 0.787 -> 0.273 (equal to the 60 ms state-latency row, as it should be);
+training the policy under `vicon_lab` changes nothing (§8.8); and the
+assault control-rate "saturation at 1.00" was a missile-burn artefact
+(#5).
 Pre-review result JSONs are preserved in `results/pre-review-2026-09-30/`.
 
 ## What exists
@@ -156,9 +209,16 @@ Core claims, each measured not assumed:
    the robustness runs are in `results/robust_{assault,tag}.log`.
 5. ~~Assault `control_rate` axis was never run~~ **Resolved 2026-09-06**
    (`robust_assault_control_rate.json`): gate edge significant at every
-   period — +0.20/+0.23/+0.16/+0.08 for dt=40/60/100/160 ms — and at
-   dt=20 ms assault saturates to 1.00 for *every* arm (the defence game gets
-   easy for everyone at fast control, unlike tag where only scripted rises).
+   period — +0.20/+0.23/+0.16/+0.08 for dt=40/60/100/160 ms (old law) — and at
+   dt=20 ms assault saturates to 1.00 for *every* arm. **Corrected
+   2026-11-03:** the saturation was an artefact. `burn_steps` counts control
+   steps and the axis rescaled `max_steps` but not the burn, so at dt=20 ms a
+   missile burned 2.4 s instead of 7.2 s and never reached the asset (breach
+   0.00, policy alone "1.00"). Fixed in `control_rate_configs` and pinned by
+   `test_control_rate_holds_missile_burn_time_constant`; on the current law
+   scripted goes 0.733 -> 0.833 from 160 to 20 ms and the gate's edge holds at
+   +0.03..+0.04 (writeup §8.7). Units smell worth fixing in Stage 2: burn
+   should be in seconds.
    Running it exposed and fixed a real crash: `aggregate()` died on a
    defence-game win with no capture step (timeout/spent-out win), first hit
    at dt=100 ms. Pinned in `test_robustness`.
@@ -166,10 +226,12 @@ Core claims, each measured not assumed:
 **Modelling honesty**
 6. `cmd_latency` is whole-frame quantised at dt=60 ms (10/20 ms→0 ticks,
    40/80 ms→1) — rows are identical by construction. Documented in the axis
-   metadata; the 0.71→0.07 step at one tick is exact, not an artifact.
+   metadata; the 0.71→0.07 step at one tick is exact, not an artifact. On the
+   current law the step is 0.787 -> 0.273, identical to the 60 ms
+   state-latency row (writeup §8.6).
 7. **The opponent always flies a perfect link** in sweeps and traces. Defensible
-   (opponent = environment) but unstated in the writeup; symmetric degradation
-   is untested.
+   (opponent = environment); now stated in writeup §8. Symmetric degradation
+   is still untested.
 8. Only *opponent* bodies can identity-swap in `link.py`; own-team bodies can
    swap in a real volume too (defender chasing its wingman's estimate).
 9. Battery sag scales the command post-hoc; a real sag also slows the *response*
@@ -208,10 +270,12 @@ Core claims, each measured not assumed:
     with tau ~0.25 s; one captured mid-step keeps thrusting until the step
     ends). Breach is checked once per control step but capture every substep,
     so a capture can pre-empt an earlier in-step breach (slightly pro-defender).
-22. Robustness axes other than assault latency/presets were measured on the
-    pre-review semantics — rerun before quoting (`pe-robust --axis all`).
-    ~135 per-point CIs, no multiple-comparison correction; the control-rate
-    axis runs policies at periods they were not trained at.
+22. ~~Robustness axes other than assault latency/presets were measured on the
+    pre-review semantics~~ **Re-run 2026-11-03** (all assault axes and all tag
+    axes, n=150, seeds 20000+, with a `scripted + shield` arm). ~300 paired deltas, still no multiple-comparison
+    correction (stated in writeup §8, which leans on patterns across levels
+    and games rather than single cells); the control-rate axis runs policies
+    at periods they were not trained at.
 23. Writeup/attacker docstrings called the missile law "proportional
     navigation" — it is lead guidance + bearing split + terminal break (fixed
     in code; check any new prose).
@@ -318,12 +382,12 @@ Core claims, each measured not assumed:
     what's traced).
 
 **Presentation / process**
-16. Writeup has **no robustness section yet** — the biggest gap between what's
-    measured and what's written. All data is in `results/robust_*.json` + this
-    file's summary; plots exist for tag only (`--plot` wasn't set on the
-    detached assault run; regenerate is cheap).
-17. ~~No CI, no git remote~~ **Resolved 2026-09-06**: private repo at
-    `github.com/chrismcgale/pursuit-evasion`, CI green on ubuntu-latest
+16. ~~Writeup has no robustness section yet~~ **Written 2026-11-03**: writeup
+    §8, figures committed in `writeup/figures/` (regenerate with
+    `scripts/analysis/robust_figures.py`; tables with `robust_report.py`).
+17. ~~No CI, no git remote~~ **Resolved 2026-09-06**: repo at
+    `github.com/chrismcgale/pursuit-evasion` (public and MIT-licensed since
+    2026-11; it was private when this item was written), CI green on ubuntu-latest
     (pytest, arena check, C++ build+tests against fetched ORT 1.29.0,
     cross-runtime parity via `scripts/check_parity.py` — parity also holds
     under GCC 13 on foreign hardware). Note: local `origin` stays SSH

@@ -52,6 +52,14 @@ uv run python -m pursuit_evasion.train.dagger --game assault --side evaders \
     --iterations 8 --episodes 100 --select-episodes 100                    # attacker policy
 ```
 
+Robustness (writeup §8). Each axis is independent, so run them in parallel
+processes (~5 min per assault axis, ~30-60 min per tag axis, single-threaded):
+```bash
+uv run pe-robust --game assault --axis latency --scripted-safe --plot
+uv run python scripts/analysis/robust_report.py --game assault --axis latency presets
+uv run python scripts/analysis/robust_figures.py        # -> writeup/figures/
+```
+
 Per-decision instrumentation — why the gate did what it did, not just whether it
 worked. Writes one self-contained HTML file (open it directly, no server):
 ```bash
@@ -187,6 +195,21 @@ XML + a gate tree.
 
 ## Changelog / decisions (newest first)
 
+- **2026-11-03** **Robustness re-run on current semantics, written up
+  (writeup §8).** Every axis for assault and tag with a new `scripted +
+  shield` arm (`pe-robust --scripted-safe`). Recipe for hardware: scripted +
+  shield; the defender gate adds +0.04..+0.08 under the shield on a clean
+  volume and nothing past ~30 ms. The old "+0.16 on vicon_lab" is retracted.
+  Found and fixed on the way: the control-rate axis shortened missile burn
+  with the control period (dt=20 ms "1.00 for every arm" was fuel, not
+  control). Training under the link changes nothing. Figures live in
+  `writeup/figures/` because `results/` is ignored.
+
+- **2026-11-03** **The shield's escort cost is the speed cap.** Paired on two
+  seed blocks (n=400): shield -0.052 on the gated stack, speed cap alone
+  -0.040, fence alone -0.010. Left unchanged (a safety limit; REVIEW
+  headline section). REVIEW #17 corrected: the repo is public, MIT.
+
 - **2026-11-03** **Stage 2 design proposal, `docs/STAGE2.md`.** Keeps
   `apply_dynamics` as the one transform site and keeps the controller
   interface (desired acceleration direction); the command-to-FC-setpoint
@@ -272,7 +295,8 @@ XML + a gate tree.
   fixed an `aggregate()` crash on defence-game wins with no capture step
   (timeout/spent wins, `eval/scenarios.py`, pinned in `test_robustness`); CI
   added (`.github/workflows/ci.yml` + `scripts/check_parity.py`) and, after
-  Chris's go, private repo `chrismcgale/pursuit-evasion` created — **CI green
+  Chris's go, repo `chrismcgale/pursuit-evasion` created (private then;
+  public, MIT, since 2026-11) — **CI green
   on the first real run** (needed `libzmq3-dev` for BT.CPP's Groot2
   publisher; ORT 1.29.0 release tarball + `-DORT_INCLUDE/-DORT_LIB` works;
   parity holds on GCC 13/foreign hardware). Local `origin` is SSH via
