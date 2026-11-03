@@ -208,6 +208,12 @@ int run_parity(Sim& sim, const std::string& game, const std::string& controller,
         if (model.empty() && ln.rfind("model name", 0) == 0) model = ln;
         if (flags.empty() && ln.rfind("flags", 0) == 0) flags = ln;
       }
+#ifdef __FMA__
+      const int fma_target = 1;
+#else
+      const int fma_target = 0;
+#endif
+      std::fprintf(stderr, "[cpp-diag] compiler %s, __FMA__=%d\n", __VERSION__, fma_target);
       std::fprintf(stderr, "[cpp-diag] %s | avx512f=%d fma=%d\n", model.c_str(),
                    (int)(flags.find(" avx512f") != std::string::npos),
                    (int)(flags.find(" fma") != std::string::npos));

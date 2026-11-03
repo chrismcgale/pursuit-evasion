@@ -8,6 +8,10 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# numpy never fuses a*b+c; a compiler allowed to emit FMA would, and the last
+# bit then differs from the Python runtime (CLAUDE.md parity invariant).
+add_compile_options(-ffp-contract=off)
+
 # --- MuJoCo: link the exact library the Python env uses (version-matched) -----
 # Defaults to the project venv; override with -DMUJOCO_ROOT=/path/to/mujoco
 set(MUJOCO_ROOT "${CMAKE_SOURCE_DIR}/../.venv/lib/python3.12/site-packages/mujoco"
