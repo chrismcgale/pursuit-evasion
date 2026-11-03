@@ -85,8 +85,10 @@ and what is broken.*
     at 100+ Hz.
 19. **Safety before first flight** (also a sim task now): ~~brake-aware
     geofence~~ (done 2026-09-30; re-derive `brake_horizon_s` = control period
-    + v/2a for the whoop airframe), inter-agent separation constraint in the
-    shield (REVIEW #12), hardware kill switch,
+    + v/2a for the whoop airframe), ~~own-team separation in the shield~~
+    (built 2026-11-03, default off, recommended on; REVIEW #12), separation
+    from *opponents* (open, Chris's decision: options in REVIEW #12),
+    hardware kill switch,
     geofence enforced below the ground station (FC-level), foam-walled volume,
     battery-sag cutoff. House rule applies: nothing physical happens without
     Chris's explicit go.

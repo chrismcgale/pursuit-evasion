@@ -80,3 +80,84 @@ TEST_CASE("fence keeps its authority through the unit-norm clip") {
   CHECK(norm(action) <= 1.0 + 1e-12);
   CHECK(action.x == doctest::Approx(-1.0));
 }
+
+// ---- own-team separation (mirrors tests/test_separation.py) ------------------
+namespace {
+SafetyConfig sep_on() {
+  SafetyConfig c;
+  c.separation_m = 1.5;
+  return c;
+}
+const Vec3 Z{0, 0, 0};
+}  // namespace
+
+TEST_CASE("separation: off by default, mates change nothing") {
+  CHECK(SafetyConfig{}.separation_m == 0.0);
+  Vec3 a{1, 0, 0}, b{1, 0, 0};
+  auto v = filter_action({0, 0, 3}, Z, a, VMAX, L, ZMIN, ZMAX, cfg, {{{0.5, 0, 3}, Z, 1}}, 0);
+  filter_action({0, 0, 3}, Z, b, VMAX, L, ZMIN, ZMAX, cfg);
+  CHECK_FALSE(v.separation);
+  CHECK(a.x == b.x);
+  CHECK(a.y == b.y);
+  CHECK(a.z == b.z);
+}
+
+TEST_CASE("separation: a converging command is turned away") {
+  Vec3 a{1, 0, 0};
+  auto v = filter_action({0, 0, 3}, Z, a, VMAX, L, ZMIN, ZMAX, sep_on(), {{{1, 0, 3}, Z, 1}}, 0);
+  CHECK(v.separation);
+  CHECK(a.x < 0.0);
+  CHECK(norm(a) <= 1.0 + 1e-12);
+}
+
+TEST_CASE("separation: brake-aware (acts on the predicted gap)") {
+  Vec3 a{1, 0, 0};
+  auto v = filter_action({0, 0, 3}, {4, 0, 0}, a, VMAX, L, ZMIN, ZMAX, sep_on(),
+                         {{{2, 0, 3}, {-4, 0, 0}, 1}}, 0);
+  CHECK(v.separation);
+  CHECK(a.x < 0.0);
+  Vec3 b{0, 1, 0};
+  v = filter_action({0, 0, 3}, Z, b, VMAX, L, ZMIN, ZMAX, sep_on(), {{{2, 0, 3}, Z, 1}}, 0);
+  CHECK_FALSE(v.separation);
+}
+
+TEST_CASE("separation: the push keeps its authority through the norm clip") {
+  Vec3 a{0, 1, 0};
+  auto v = filter_action({0, 0, 3}, Z, a, VMAX, L, ZMIN, ZMAX, sep_on(), {{{-0.5, 0, 3}, Z, 1}}, 0);
+  CHECK(v.separation);
+  CHECK(std::abs(norm(a) - 1.0) < 1e-12);
+  CHECK(std::abs(a.x - 1.0) < 1e-12);
+}
+
+TEST_CASE("separation: coincident agents split in opposite directions") {
+  Vec3 a0{0, 0, 0}, a1{0, 0, 0};
+  separate({0, 0, 3}, Z, a0, {{{0, 0, 3}, Z, 1}}, sep_on(), 0);
+  separate({0, 0, 3}, Z, a1, {{{0, 0, 3}, Z, 0}}, sep_on(), 1);
+  CHECK(a0.z > 0.0);
+  CHECK(a1.z < 0.0);
+}
+
+TEST_CASE("separation: the fence wins at the wall") {
+  Vec3 a{0, 0, 0};
+  auto v = filter_action({L, 0, 3}, Z, a, VMAX, L, ZMIN, ZMAX, sep_on(), {{{L - 1, 0, 3}, Z, 1}}, 0);
+  CHECK(v.separation);
+  CHECK(v.geofence);
+  CHECK(a.x < 0.0);
+}
+
+TEST_CASE("separation: the team filter ignores dead teammates") {
+  ArenaConfig arena;
+  TeamView tv;
+  tv.arena = &arena;
+  tv.vmax = VMAX;
+  tv.self_pos = {{0, 0, 3}, {0.5, 0, 3}};
+  tv.self_vel = {Z, Z};
+  tv.self_alive = {1, 1};
+  TeamSafetyFilter f(sep_on());
+  f.apply(tv, std::vector<double>(6, 0.0));
+  CHECK(f.n_separation == 2);
+  tv.self_alive[1] = 0;
+  f.reset();
+  f.apply(tv, std::vector<double>(6, 0.0));
+  CHECK(f.n_separation == 0);
+}

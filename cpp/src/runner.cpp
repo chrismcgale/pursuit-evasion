@@ -139,7 +139,8 @@ std::vector<Starts> parity_starts(const std::string& game) {
 // controller: "scripted" (scripted vs scripted) or "bt_safe" (the shipped
 // Shielded(Gated) pursuer-slot stack vs the scripted opponent).
 int run_parity(Sim& sim, const std::string& game, const std::string& controller,
-               const std::string& onnx, const std::string& tree) {
+               const std::string& onnx, const std::string& tree,
+               const SafetyConfig& safety) {
   ControllerPair pair = default_controllers(game);
   std::unique_ptr<OnnxPolicy> policy;
   std::unique_ptr<RLController> rl;
@@ -150,7 +151,7 @@ int run_parity(Sim& sim, const std::string& game, const std::string& controller,
     policy = std::make_unique<OnnxPolicy>(onnx);
     rl = std::make_unique<RLController>(policy.get());
     gate = std::make_unique<GatedController>(Team::Pursuers, pair.pursuer.get(), rl.get(), tree);
-    shield = std::make_unique<ShieldedController>(gate.get());
+    shield = std::make_unique<ShieldedController>(gate.get(), safety);
     P = shield.get();
   } else if (controller != "scripted") {
     std::fprintf(stderr, "[cpp] --parity supports scripted | bt_safe, not %s\n",
@@ -175,9 +176,14 @@ int run_parity(Sim& sim, const std::string& game, const std::string& controller,
     const int geo = shield ? shield->filter.n_geofence : 0;
     const int spd = shield ? shield->filter.n_speed : 0;
     std::printf("[cpp-parity] game=%s ctrl=%s cfg=%zu win=%d steps=%d checksum=%.6f "
-                "rl=%d viol=%d/%d\n",
+                "rl=%d viol=%d/%d",
                 game.c_str(), controller.c_str(), k, info.pursuer_win ? 1 : 0, info.steps,
                 checksum, rl_ticks, geo, spd);
+    // the separation count is printed only when the constraint is on, so the
+    // default line stays byte-identical to the pre-separation format
+    if (safety.separation_m > 0)
+      std::printf("/%d", shield ? shield->filter.n_separation : 0);
+    std::printf("\n");
   }
   return 0;
 }
@@ -201,12 +207,16 @@ int main(int argc, char** argv) {
   a.onnx = arg_val(argc, argv, "--onnx", default_onnx(a.game, test_pursuers));
   a.tree = arg_val(argc, argv, "--tree", default_tree(a.game, test_pursuers));
 
+  // Shield options. --separation <m> turns on own-team separation (default off).
+  SafetyConfig safety;
+  safety.separation_m = std::stod(arg_val(argc, argv, "--separation", "0"));
+
   Sim sim(a.arena, spec);
   if (has_flag(argc, argv, "--parity")) {
     // --controller defaults to "bt" for evaluation runs; parity means scripted
     // unless bt_safe is asked for explicitly
     const std::string ctrl = a.controller == "bt_safe" ? "bt_safe" : "scripted";
-    return run_parity(sim, a.game, ctrl, a.onnx, a.tree);
+    return run_parity(sim, a.game, ctrl, a.onnx, a.tree, safety);
   }
   Team test_team = test_pursuers ? Team::Pursuers : Team::Evaders;
 
@@ -232,7 +242,7 @@ int main(int argc, char** argv) {
       Controller* rl = keep(new RLController(policy.get(), "rl"));
       Controller* gate =
           keep(new GatedController(test_team, scripted_test, rl, a.tree, {}, a.groot));
-      tested = (a.controller == "bt_safe") ? keep(new ShieldedController(gate)) : gate;
+      tested = (a.controller == "bt_safe") ? keep(new ShieldedController(gate, safety)) : gate;
     }
   }
 

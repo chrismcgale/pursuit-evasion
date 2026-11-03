@@ -32,6 +32,13 @@ uv run pe-viz --game escort --controller bt --out escort.mp4
 uv run python -m pursuit_evasion.env.dump_arenas --check    # cpp/assets/*.xml are GENERATED
 ```
 
+Shield options: own-team separation is off by default; turn it on for any
+multi-airframe run (and match it on both sides of a parity check):
+```bash
+uv run pe-parity --game tag --controller bt_safe --separation 1.5
+(cd cpp && ./build/pe_run --parity --game tag --controller bt_safe --separation 1.5)
+```
+
 Gate analysis — how every shipped profile was derived. Always ≥2 seed blocks; a
 few points at 150 episodes is noise, not a branch worth keeping:
 ```bash
@@ -164,6 +171,16 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-11-03** **Own-team separation in the shield, default off.**
+  `SafetyConfig.separation_m` (both runtimes, `--separation` on `pe-parity` /
+  `pe_run`, parity exact on and off, CI covers tag 1.5 m and escort 5 m).
+  Brake-aware like the fence. Measured paired on held-out seeds: tag scripted
+  pursuers overlapped in 50% of episodes and separation *raises* their capture
+  +0.08 [+0.03, +0.13]; no cell loses significantly; defenders almost never
+  meet. Recommended as default with the next headline re-run (REVIEW #12).
+  Separation from opponents conflicts with capture and is Chris's call; the
+  options and stopping-distance numbers are in REVIEW #12.
 
 - **2026-11-03** **Parity is CPU-dependent through OpenBLAS; pinned.** On an
   AVX-512 Xeon, tag bt_safe parity failed on 3/5 starts with no code change:

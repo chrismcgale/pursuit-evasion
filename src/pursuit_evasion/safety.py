@@ -17,6 +17,17 @@ every agent passes through this filter. It enforces two hard runtime constraints
   * **Speed limit** — a soft cap below the agent's aerodynamic terminal speed. If
     the agent is already over the cap, any command component that would increase
     speed is projected out.
+  * **Own-team separation** (off by default, ``separation_m > 0``) — keep live
+    teammates at least ``separation_m`` apart, centre to centre. Brake-aware
+    like the fence: it acts on the predicted relative position
+    ``(p_i + h v_i) - (p_j + h v_j)`` as well as the current one, removes the
+    command component toward the teammate and pushes away in proportion to the
+    shortfall. The push keeps its authority through the norm clip (the
+    component across the push direction is shrunk instead). It runs before the
+    fence, so near a wall the fence wins. Each agent applies it independently,
+    so a converging pair both turn away. Opponents are not included: capture
+    commands near-contact, and separating from opponents conflicts with the
+    objective (see docs/REVIEW.md #12).
 
 The logic is a pure function (``filter_action``) so the C++ runtime can mirror it
 exactly and so every branch is unit-testable. ``violations`` reports which
@@ -52,27 +63,83 @@ class SafetyConfig:
     # downstream norm clip cannot dilute the fence. False = legacy behaviour.
     # Free: at h=0.10 it is worth +0.06 tag win over the same fence without it.
     keep_fence_authority: bool = True
+    # Minimum centre-to-centre distance between live teammates (m). 0 = off.
+    # Uses brake_horizon_s for its look-ahead and correction_gain for its push.
+    separation_m: float = 0.0
 
 
 @dataclass
 class Violation:
     geofence: bool = False
     speed: bool = False
+    separation: bool = False
 
     def any(self) -> bool:
-        return self.geofence or self.speed
+        return self.geofence or self.speed or self.separation
+
+
+def separate(pos, vel, action, mates, cfg: SafetyConfig, rank: int = 0):
+    """Own-team separation; returns (action, fired). Pure, mirrored in C++.
+
+    ``mates`` is a sequence of ``(pos, vel, index)`` for the OTHER live agents
+    of the same team; ``rank`` is this agent's index (it only breaks the tie
+    when two agents sit exactly on top of each other). Scalar arithmetic
+    throughout, in the order the C++ mirror evaluates it.
+    """
+    a = [float(action[0]), float(action[1]), float(action[2])]
+    h = cfg.brake_horizon_s
+    sep = cfg.separation_m
+    fired = False
+    for q, w, j in mates:
+        r = [(pos[k] + h * vel[k]) - (q[k] + h * w[k]) for k in range(3)]
+        r0 = [pos[k] - q[k] for k in range(3)]
+        d = math.sqrt(r[0] * r[0] + r[1] * r[1] + r[2] * r[2])
+        d0 = math.sqrt(r0[0] * r0[0] + r0[1] * r0[1] + r0[2] * r0[2])
+        dmin = min(d, d0)
+        if dmin >= sep:
+            continue
+        if d > 1e-9:
+            n = [r[0] / d, r[1] / d, r[2] / d]
+        elif d0 > 1e-9:
+            n = [r0[0] / d0, r0[1] / d0, r0[2] / d0]
+        else:
+            n = [0.0, 0.0, 1.0 if rank < j else -1.0]
+        along = a[0] * n[0] + a[1] * n[1] + a[2] * n[2]
+        if along < 0:
+            a = [a[k] - along * n[k] for k in range(3)]
+        c = cfg.correction_gain * (sep - dmin)
+        a = [a[k] + c * n[k] for k in range(3)]
+        # keep the push through the downstream norm clip: shrink the rest
+        n2 = a[0] * a[0] + a[1] * a[1] + a[2] * a[2]
+        if n2 > 1.0:
+            p = a[0] * n[0] + a[1] * n[1] + a[2] * n[2]
+            if p >= 1.0:
+                a = [n[0], n[1], n[2]]
+            else:
+                perp = [a[k] - p * n[k] for k in range(3)]
+                pn = math.sqrt(perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2])
+                if pn > 1e-12:
+                    kk = math.sqrt(1.0 - p * p) / pn
+                    a = [p * n[k] + kk * perp[k] for k in range(3)]
+        fired = True
+    return np.array(a, dtype=np.float64), fired
 
 
 def filter_action(pos: np.ndarray, vel: np.ndarray, action: np.ndarray,
                   vmax: float, half_extent: float, z_min: float, z_max: float,
-                  cfg: SafetyConfig) -> tuple[np.ndarray, Violation]:
+                  cfg: SafetyConfig, mates=(), rank: int = 0
+                  ) -> tuple[np.ndarray, Violation]:
     """Clamp a single agent's action to the geofence and speed limit.
 
-    Returns the corrected action (each component in [-1, 1]) and which
-    constraints were actively enforced this tick.
+    ``mates``/``rank`` feed the own-team separation constraint (``separate``),
+    which only runs when ``cfg.separation_m > 0``. Returns the corrected action
+    (each component in [-1, 1]) and which constraints were actively enforced
+    this tick.
     """
     a = np.clip(np.asarray(action, dtype=np.float64).copy(), -1.0, 1.0)
     v = Violation()
+    if cfg.separation_m > 0 and len(mates) > 0:
+        a, v.separation = separate(pos, vel, a, mates, cfg, rank)
 
     lo_xy = -(half_extent - cfg.geofence_margin)
     hi_xy = half_extent - cfg.geofence_margin
@@ -138,10 +205,12 @@ class TeamSafetyFilter:
         self.cfg = cfg or SafetyConfig()
         self.n_geofence = 0
         self.n_speed = 0
+        self.n_separation = 0
 
     def reset(self):
         self.n_geofence = 0
         self.n_speed = 0
+        self.n_separation = 0
 
     def apply(self, view: TeamView, team_action: np.ndarray) -> np.ndarray:
         a = np.asarray(team_action, dtype=np.float64).reshape(-1, 3)
@@ -150,12 +219,17 @@ class TeamSafetyFilter:
         for i in range(a.shape[0]):
             if not view.self_alive[i]:
                 continue
+            mates = ()
+            if self.cfg.separation_m > 0:
+                mates = [(view.self_pos[j], view.self_vel[j], j)
+                         for j in range(a.shape[0]) if j != i and view.self_alive[j]]
             corr, viol = filter_action(
                 view.self_pos[i], view.self_vel[i], a[i], view.vmax,
-                arena.half_extent, arena.z_min, arena.z_max, self.cfg)
+                arena.half_extent, arena.z_min, arena.z_max, self.cfg, mates, i)
             out[i] = corr
             self.n_geofence += int(viol.geofence)
             self.n_speed += int(viol.speed)
+            self.n_separation += int(viol.separation)
         return out.reshape(-1)
 
 
