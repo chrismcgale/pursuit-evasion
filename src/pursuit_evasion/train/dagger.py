@@ -19,10 +19,17 @@ scripted teacher switches law (lead-intercept vs. hold-the-gate) discontinuously
 
     uv run python -m pursuit_evasion.train.dagger --iterations 8 --episodes 100 --out models
     uv run python -m pursuit_evasion.train.dagger --game assault --iterations 6
+
+Every iteration is kept: ``<stem>_it<k>.zip`` plus ``<stem>_lineage.json``
+(dataset size, BC loss and selection-battery score per iteration), so policy
+quality can be swept against gate value (ROADMAP #4). ``<stem>.zip`` is still
+the best-on-selection checkpoint. Re-measure any pick on held-out seeds: the
+selection battery is small and best-of-N on it is biased high.
 """
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -99,6 +106,8 @@ def main(argv=None):
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--side", default="pursuers", choices=["pursuers", "evaders"],
                    help="which slot to learn; 'evaders' clones the raid/attacker expert")
+    p.add_argument("--no-lineage", action="store_true",
+                   help="only keep the best checkpoint (the pre-2026-11 behaviour)")
     p.add_argument("--select-episodes", type=int, default=40,
                    help="episodes in the checkpoint-selection battery. Best-of-N on a "
                         "small battery is biased high (winner's curse): the tag run "
@@ -129,6 +138,10 @@ def main(argv=None):
 
     X, Y = [], []
     best = -1.0
+    lineage = {"game": args.game, "side": args.side, "seed": args.seed,
+               "episodes": args.episodes, "bc_epochs": args.bc_epochs,
+               "select_episodes": args.select_episodes, "select_seed0": 9000,
+               "iterations": []}
     for it in range(args.iterations):
         beta = 1.0 if it == 0 else 0.0            # iter 0 = pure BC; then learner drives
         Xi, Yi = collect_dagger(learner, expert, opponent, args.episodes, arena, episode,
@@ -141,9 +154,17 @@ def main(argv=None):
                               n=args.select_episodes)
         print(f"[dagger] {args.game}/{args.side} iter {it}: dataset={len(X)} "
               f"mse={mse:.4f} win={rate:.2f}")
+        if not args.no_lineage:
+            model.save(out / f"{stem}_it{it}")
+            lineage["iterations"].append({"iter": it, "dataset": len(X), "mse": float(mse),
+                                          "select_win": float(rate),
+                                          "path": f"{stem}_it{it}.zip"})
         if rate >= best:
             best = rate
             model.save(out / stem)
+            lineage["best_iter"] = it
+        if not args.no_lineage:
+            (out / f"{stem}_lineage.json").write_text(json.dumps(lineage, indent=1))
     print(f"[dagger] best win={best:.2f}; saved -> {out}/{stem}.zip")
     return 0
 
