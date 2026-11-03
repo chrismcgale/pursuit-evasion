@@ -46,29 +46,66 @@ from ..scripted.base import RLController
 from .imitation import bc_pretrain
 
 
+class _LinkedLearner:
+    """What runs behind the link during collection: records the observation the
+    learner actually gets (the corrupted, delayed estimate) and returns either
+    the learner's action on it or, on a beta tick, the expert's truth label."""
+
+    def __init__(self, learner):
+        self.learner, self.name = learner, "linked_learner"
+        self.obs, self.use_label, self.label = None, False, None
+
+    def reset(self):
+        self.learner.reset()
+
+    def act(self, est):
+        self.obs = build_team_obs(est)
+        if self.use_label:
+            return self.label
+        return np.asarray(self.learner.act(est)).reshape(-1)
+
+
 def collect_dagger(learner, expert, opponent, n_episodes, arena, episode, beta, seed0,
-                   game=None, team=TEAM_PURSUERS):
+                   game=None, team=TEAM_PURSUERS, link=None):
     """Roll out a β-mix of expert/learner; label every visited state with the expert.
 
     ``team`` selects which slot is being learned. The pursuer slot is the default
     (tag pursuers / air-defence interceptors); ``TEAM_EVADERS`` learns the evader
     slot instead, which is how a *raid* policy is cloned from the missile expert.
+
+    ``link`` (a ``LinkProfile``) trains under the sim-to-real link: the learner
+    sees the delayed, noisy estimate and its commands go through the uplink,
+    while the expert labels each state from TRUTH (a privileged teacher). The
+    stored observation is the estimate, so the policy learns to act well from
+    what it will actually see.
     """
     core = PursuitEvasionCore(arena, episode, seed=seed0, game=game)
     rng = np.random.default_rng(seed0)
     learning_pursuers = team == TEAM_PURSUERS
+    linked = None
+    if link is not None and not link.is_perfect():
+        from ..env.link import LinkedController
+        inner = _LinkedLearner(learner)
+        linked = LinkedController(inner, link, seed=seed0,
+                                  dt=core.arena.timestep * core.ep.control_repeat)
     X, Y = [], []
     for e in range(n_episodes):
         pv, ev = core.reset(seed=seed0 + e)
-        learner.reset()
+        (linked or learner).reset()
         expert.reset()
         opponent.reset()
         while True:
             own, other = (pv, ev) if learning_pursuers else (ev, pv)
             expert_a = np.asarray(expert.act(own), dtype=np.float32).reshape(-1)
-            X.append(build_team_obs(own))
             Y.append(expert_a)                                   # label = expert
-            drive = expert_a if rng.random() < beta else np.asarray(learner.act(own)).reshape(-1)
+            use_label = rng.random() < beta
+            if linked is None:
+                X.append(build_team_obs(own))
+                drive = expert_a if use_label else np.asarray(learner.act(own)).reshape(-1)
+            else:
+                inner.use_label, inner.label = use_label, expert_a.astype(np.float64)
+                drive = np.asarray(linked.act(own)).reshape(-1)
+                X.append(inner.obs)
             opp_a = opponent.act(other)
             r = core.step(drive if learning_pursuers else opp_a,
                           opp_a if learning_pursuers else drive)
@@ -79,7 +116,7 @@ def collect_dagger(learner, expert, opponent, n_episodes, arena, episode, beta, 
 
 
 def quick_win_rate(model, arena, episode, opponent, game=None, n=40, seed0=9000,
-                   team=TEAM_PURSUERS):
+                   team=TEAM_PURSUERS, link=None):
     """Held-out success rate for the team being learned.
 
     The harness always reports the *pursuer-slot* objective (see CLAUDE.md — it
@@ -89,6 +126,10 @@ def quick_win_rate(model, arena, episode, opponent, game=None, n=40, seed0=9000,
     """
     from ..eval.scenarios import run_batch
     ctrl = RLController(model, name="dagger")
+    if link is not None and not link.is_perfect():
+        from ..env.link import LinkedController
+        ctrl = LinkedController(ctrl, link, seed=seed0,
+                                dt=arena.timestep * episode.control_repeat)
     if team == TEAM_PURSUERS:
         return run_batch(ctrl, opponent, n, seed0, arena, episode,
                          game=game).aggregate()["win_rate"]
@@ -113,9 +154,20 @@ def main(argv=None):
                         "small battery is biased high (winner's curse): the tag run "
                         "used 40 and its pick scored 0.30 there but 0.20 on a held-out "
                         "200. Always re-measure the chosen checkpoint independently.")
+    p.add_argument("--link", default=None,
+                   help="train (and select) under this link preset (env/link.py), "
+                        "expert labels from truth")
+    p.add_argument("--init", default=None,
+                   help="start from this checkpoint (fine-tune) instead of a fresh net; "
+                        "iteration 0 is then learner-driven too")
+    p.add_argument("--stem", default=None, help="output name (default per game/side)")
     args = p.parse_args(argv)
 
     game = make_game(args.game)
+    link = None
+    if args.link:
+        from ..env.link import PRESETS
+        link = PRESETS[args.link]
     arena, episode = game.arena, game.episode
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -124,6 +176,7 @@ def main(argv=None):
         stem = "pursuer_dagger" if args.game == "tag" else f"{args.game}_dagger"
     else:
         stem = f"{args.game}_attacker_dagger"
+    stem = args.stem or stem
 
     pursuer_ctrl, evader_ctrl = default_controllers(args.game)
     # the expert teaches the learned slot; the other slot is the scripted opponent
@@ -132,26 +185,32 @@ def main(argv=None):
     boot = DummyVecEnv([lambda: Monitor(
         SelfPlayTeamEnv(team, opponent,
                         arena=arena, episode=episode, game=game))])
-    model = PPO("MlpPolicy", boot, device="cpu", seed=args.seed,
-                policy_kwargs=dict(net_arch=[128, 128]), n_steps=1024, batch_size=256)
+    if args.init:
+        model = PPO.load(args.init, env=boot, device="cpu")
+    else:
+        model = PPO("MlpPolicy", boot, device="cpu", seed=args.seed,
+                    policy_kwargs=dict(net_arch=[128, 128]), n_steps=1024, batch_size=256)
     learner = RLController(model, name="dagger")
 
     X, Y = [], []
     best = -1.0
     lineage = {"game": args.game, "side": args.side, "seed": args.seed,
+               "link": args.link, "init": args.init,
                "episodes": args.episodes, "bc_epochs": args.bc_epochs,
                "select_episodes": args.select_episodes, "select_seed0": 9000,
                "iterations": []}
     for it in range(args.iterations):
-        beta = 1.0 if it == 0 else 0.0            # iter 0 = pure BC; then learner drives
+        # iter 0 = pure BC; then learner drives (a fine-tune starts learner-driven)
+        beta = 1.0 if (it == 0 and not args.init) else 0.0
         Xi, Yi = collect_dagger(learner, expert, opponent, args.episodes, arena, episode,
-                                beta, seed0=args.seed + it * 1000, game=game, team=team)
+                                beta, seed0=args.seed + it * 1000, game=game, team=team,
+                                link=link)
         X.extend(Xi)
         Y.extend(Yi)
         mse = bc_pretrain(model, np.asarray(X, np.float32), np.asarray(Y, np.float32),
                           epochs=args.bc_epochs)
         rate = quick_win_rate(model, arena, episode, opponent, game=game, team=team,
-                              n=args.select_episodes)
+                              n=args.select_episodes, link=link)
         print(f"[dagger] {args.game}/{args.side} iter {it}: dataset={len(X)} "
               f"mse={mse:.4f} win={rate:.2f}")
         if not args.no_lineage:
