@@ -312,15 +312,23 @@ def test_attacker_gate_hands_over_nothing():
     assert [n for n, _, _ in _PREDICATES["attacker"]()] == ["committed"]
 
 
-def test_defender_gate_hands_off_on_the_scripted_fallback():
+def test_defender_gate_hands_over_nothing():
+    """Pins the 2026-11-03 result (writeup §7.4, _defender_predicates point 4).
+
+    With the law's adaptive fallback, handing its fallback regime to the policy
+    added nothing in assault and lost 0.105 in escort on a fresh block, so the
+    branch still detects the regime (for Groot2) but routes it to scripted, as
+    the attacker gate does. C++ mirror ticks trees/gate_defenders.xml.
+    """
     from pursuit_evasion.bt.gating import GateThresholds, _PREDICATES
     thr = GateThresholds()
     name, pred, mode = _PREDICATES["defender"]()[0]
     f = agent_features(PursuitEvasionCore(seed=0, game="assault").reset(seed=0)[0], 0)
     f.scripted_fallback = True
-    assert name == "scripted_fallback" and pred(f, thr) and mode == MODE_RL
+    assert name == "scripted_fallback" and pred(f, thr) and mode == MODE_SCRIPTED
     f.scripted_fallback = False
     assert not pred(f, thr)
+    assert all(m == MODE_SCRIPTED for _, _, m in _PREDICATES["defender"]())
 
 
 def test_sphere_intercept_is_the_point_solve_at_zero_radius():
@@ -354,27 +362,34 @@ def test_sphere_intercept_finds_kills_the_point_solve_calls_impossible():
 
 
 def test_gate_hands_over_on_the_laws_own_regime_not_a_proxy():
-    """The gate reads GuardDefenders.plan's fallback flag, so it hands over
-    exactly when the law parks on a gate point — even where the old proxy
-    (point intercept of the NEAREST threat) would have said otherwise."""
+    """The gate reads GuardDefenders.plan's fallback flag (not a re-derived
+    proxy), so its scripted_fallback branch fires exactly on the law's own
+    regime. Since 2026-11-03 that branch routes to scripted, so the action is
+    the law's on every tick, fallback or not."""
     from pursuit_evasion.env.core import TEAM_PURSUERS
     from pursuit_evasion.scripted.defenders import GuardDefenders
     core = PursuitEvasionCore(seed=0, game="assault")
     law = GuardDefenders()
     gc = GatedController(TEAM_PURSUERS, law, _ConstController(-0.75), game="assault")
+    gc.trace = True
+    seen_fallback = 0
     for seed in range(5):
         pv, ev = core.reset(seed=seed)
         _, attackers = default_controllers("assault")
         for _ in range(60):
             s_act, fb = law.plan(pv)
             out = gc.act(pv).reshape(-1, 3)
-            for i in range(out.shape[0]):
-                expect = -0.75 if fb[i] else s_act.reshape(-1, 3)[i][0]
-                assert out[i][0] == expect
+            for d in gc.last_decisions:
+                i = d["agent"]
+                assert d["features"].scripted_fallback == bool(fb[i])
+                assert d["branch"] == ("scripted_fallback" if fb[i] else d["branch"])
+                np.testing.assert_array_equal(out[i], np.clip(s_act.reshape(-1, 3)[i], -1, 1))
+                seen_fallback += int(fb[i])
             r = core.step(out.reshape(-1), attackers.act(ev))
             pv, ev = r.pursuer_view, r.evader_view
             if r.terminated or r.truncated:
                 break
+    assert seen_fallback > 0    # the regime was actually exercised
 
 
 class _ConstController:
@@ -410,21 +425,13 @@ def _defender_view(missile_vel_x):
         game="assault", asset_pos=np.array([-5.0, 0.0, 3.0]))
 
 
-def test_defender_handover_is_immediate():
-    """Pins the negative result of the debounce experiment (ROADMAP #3).
+def test_defender_gate_keeps_the_law_in_its_fallback():
+    """The gated defender stack is the scripted law, tick for tick.
 
-    Requiring the fallback regime to persist k consecutive ticks before handing
-    over was measured and LOST, as a clean dose-response on the assault latency
-    axis (n=150, paired seeds+corruption, bt_gated win rate, original law):
-
-        latency:      0 ms   20 ms   40 ms   60 ms
-        k=1 (ship)    0.71    0.51    0.21    0.07
-        k=2           0.59    0.37    0.19    0.06
-        k=3           0.49    0.35    0.19    0.06
-
-    Genuine fallback regimes are 20-30-tick streaks that do not flicker, so a
-    debounce is pure delay against an 11 m/s missile. The first fallback tick
-    must hand over immediately. C++ mirror in cpp/tests/test_games.cpp.
+    History: this used to pin an IMMEDIATE handover on the first fallback tick
+    (a k-tick debounce lost 0.71/0.59/0.49 for k=1/2/3). Since 2026-11-03 there
+    is no handover at all (test_defender_gate_hands_over_nothing). C++ mirror in
+    cpp/tests/test_games.cpp.
     """
     from pursuit_evasion.env.core import TEAM_PURSUERS
     from pursuit_evasion.scripted.defenders import GuardDefenders
@@ -433,10 +440,9 @@ def test_defender_handover_is_immediate():
     gc = GatedController(TEAM_PURSUERS, law, _ConstController(-0.75), game="assault")
     receding, inbound = _defender_view(11.0), _defender_view(-11.0)
     assert law.plan(receding)[1][0] and not law.plan(inbound)[1][0]
-
-    assert gc.act(inbound)[0] == law.act(inbound)[0]       # intercept: scripted
-    assert gc.act(receding)[0] == -0.75                    # first fallback tick: RL
-    assert gc.mode_counts[MODE_RL] == 1
+    np.testing.assert_array_equal(gc.act(inbound), np.clip(law.act(inbound), -1, 1))
+    np.testing.assert_array_equal(gc.act(receding), np.clip(law.act(receding), -1, 1))
+    assert gc.mode_counts[MODE_RL] == 0
 
 
 def test_defender_gate_does_not_hand_close_quarters_to_the_policy():
