@@ -60,6 +60,12 @@ and what is broken.*
 
 ## Stage 2 — 6-DOF underactuated dynamics (the big rebuild)
 
+*Design proposal (2026-11-03, not implemented): `docs/STAGE2.md` — model
+choice (free joint with kinematic attitude, recommended), command-to-FC
+mapping, whoop preset, what each change invalidates, and a 10-step migration
+order that keeps parity checkable. The parameters and the response model are
+Chris's decisions (STAGE2 §6).*
+
 12. Replace slide joints with free joint + thrust-along-body-z + Betaflight-
     style rate/angle response model (attitude loop as first-order lag on tilt,
     ~100-200 ms to settle). Keep `apply_dynamics` as the single transform site.

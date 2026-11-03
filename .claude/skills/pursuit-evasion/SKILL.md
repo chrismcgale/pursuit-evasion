@@ -187,6 +187,15 @@ XML + a gate tree.
 
 ## Changelog / decisions (newest first)
 
+- **2026-11-03** **Stage 2 design proposal, `docs/STAGE2.md`.** Keeps
+  `apply_dynamics` as the one transform site and keeps the controller
+  interface (desired acceleration direction); the command-to-FC-setpoint
+  mapping inside it is what becomes the CRSF encoder on hardware. Migration in
+  ten steps, each adding a parity line before the next; the free-joint state
+  layout change is isolated in its own step. Open for Chris: model A/B,
+  first- vs second-order attitude, airframe numbers, room/capture/speed, and
+  whether the defence games go to whoop scale.
+
 - **2026-11-03** **Gate value does not follow policy quality; two scripted
   fallbacks are leaking.** `dagger.py` keeps every iteration
   (`<stem>_it<k>.zip`, `<stem>_lineage.json`) and can train under the link
