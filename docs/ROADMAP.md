@@ -24,12 +24,14 @@ and what is broken.*
    pinned by `test_defender_handover_is_immediate` in both runtimes. The
    negative result IS the design contribution — writeup §robustness should
    carry the k-table.
-4. **Gate-value vs policy-quality curve** — NB (review 2026-09-30): there is
-   no DAgger checkpoint lineage — `models/history.json` is the self-play PPO
-   history and `dagger.py` overwrites one best checkpoint. Save per-iteration
-   checkpoints first, and retrain against the sphere-solving law (REVIEW #19).
-   Then sweep gate advantage as a function of policy strength. Falsifiable prediction: gated-minus-scripted stays flat
-   (the gain is regime coverage, not policy quality) while policy-only rises.
+4. ~~Gate-value vs policy-quality curve~~ **Done 2026-11-03** (writeup §7.3,
+   REVIEW #19). `dagger.py` keeps every iteration; retrained on the sphere
+   law. Prediction half held: the gain never rises with policy-only quality
+   (assault flat across 0.005 -> 0.175). Escort's BC iteration 0 is an
+   outlier (+0.25 on two blocks). Simple scripted fills explain much of the
+   gain (assault pure pursuit +0.06, escort predicted-asset gate +0.08-0.10).
+   **Next: fix both scripted fallbacks in both runtimes, then retrain**
+   (REVIEW #19 option d).
 5. ~~Assault `control_rate` axis~~ **Done 2026-09-06** (REVIEW #5): gate edge
    holds at every period; dt=20 ms saturates every arm to 1.00. Still open
    from this item: whether tag's published baseline should be restated at a

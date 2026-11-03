@@ -25,7 +25,11 @@ uv run python -m pursuit_evasion.train.export_onnx models/pursuer.zip models/pur
 Games (`tag` | `assault` | `escort`). Most entry points take `--game`; the defence
 games use the `<game>_dagger` model stem, not `pursuer*`:
 ```bash
-uv run python -m pursuit_evasion.train.dagger --game assault --iters 6
+uv run python -m pursuit_evasion.train.dagger --game assault --iterations 9 --out models/sphere_law
+#   keeps <stem>_it<k>.zip + <stem>_lineage.json; --link vicon_lab trains under the link,
+#   --init <ckpt> fine-tunes, --stem names the output
+uv run python scripts/analysis/gate_vs_policy.py --game assault \
+    --lineage models/sphere_law/assault_dagger_lineage.json --episodes 200 --out results/gvp.json
 uv run python -m pursuit_evasion.train.export_onnx models/assault_dagger.zip models/assault_dagger.onnx
 uv run pe-games --games tag assault escort --episodes 200   # cross-game tournament, autofills the writeup
 uv run pe-viz --game escort --controller bt --out escort.mp4
@@ -182,6 +186,18 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-11-03** **Gate value does not follow policy quality; two scripted
+  fallbacks are leaking.** `dagger.py` keeps every iteration
+  (`<stem>_it<k>.zip`, `<stem>_lineage.json`) and can train under the link
+  (`--link`, privileged truth labels) or fine-tune (`--init`). Defenders
+  retrained on the sphere law into `models/sphere_law/` (shipped models and CI
+  inputs untouched). On two held-out blocks the gate's gain stays flat as the
+  policy alone improves 0.005 -> 0.175 (assault). Escort's BC iteration 0 adds
+  +0.25 on both blocks. Scripted fills of the fallback regime show where the
+  gain comes from: pure pursuit matches every assault policy (+0.06), a gate
+  point on the convoy's predicted position gives escort +0.08-0.10. Writeup
+  §7.3. Shipping is Chris's call (REVIEW #19).
 
 - **2026-11-03** **The link layer runs in C++ too (REVIEW #11, #14).**
   `pe/link.hpp` mirrors `env/link.py`; its random draws come from a tape that

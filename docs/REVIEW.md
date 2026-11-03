@@ -180,11 +180,27 @@ Core claims, each measured not assumed:
     robustness layer came first.
 
 **Found by the 2026-09-30 review, still open**
-19. **The defender policy imitates the old law.** `assault_dagger` /
-    `escort_dagger` are pure DAgger clones of the point-solve `GuardDefenders`;
-    in the fallback regime they reproduce a smoothed version of the very law
-    the gate bypasses. Retrain against the sphere law (or under the link,
-    ROADMAP #11) before reading anything into the residual +0.05.
+19. **Retrained 2026-11-03; the shipped models are unchanged (Chris's
+    decision).** Defender policies retrained against the sphere law with every
+    DAgger iteration kept (`models/sphere_law/`, lineage JSONs alongside).
+    Gate value vs policy quality on two held-out blocks (writeup §7.3): the
+    gain does not rise with the policy's own win rate (assault: policy alone
+    0.005 -> 0.175, gain +0.025..+0.075). Escort's iteration-0 behaviour clone
+    is an outlier: gated 0.790 / 0.815 vs scripted 0.545 on both blocks
+    (+0.245 / +0.270), against +0.075 / +0.035 for the shipped policy. Simple
+    scripted fills of the same regime explain part of it: pure pursuit
+    recovers all of assault's gate gain (+0.060), and leading the escort gate
+    point to the convoy's predicted position gains +0.095 / +0.075. Options
+    for shipping, none taken:
+    (a) keep the shipped old-law clones (CI parity inputs unchanged);
+    (b) ship the best-on-selection sphere-law checkpoints (assault it8, escort
+        it7): no better than shipped on either block, so little reason to;
+    (c) ship escort it0 (replicated +0.27 over scripted; picked post hoc
+        from 10 checkpoints, but on an independent second block);
+    (d) **recommended:** first fix the two scripted fallbacks (pure pursuit
+        when no intercept in assault; predicted-asset gate point in escort),
+        both runtimes + parity, then retrain and re-measure. Shipping a policy
+        to cover a gap a ten-line rule closes repeats the §7.2 pattern.
 20. **Each gated agent gets an action from a team-joint policy** trained to
     drive both agents; mixed scripted/RL ticks are out of its training
     distribution.

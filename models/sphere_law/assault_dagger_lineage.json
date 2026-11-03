@@ -1,0 +1,75 @@
+{
+ "game": "assault",
+ "side": "pursuers",
+ "seed": 0,
+ "episodes": 100,
+ "bc_epochs": 12,
+ "select_episodes": 40,
+ "select_seed0": 9000,
+ "iterations": [
+  {
+   "iter": 0,
+   "dataset": 4300,
+   "mse": 0.052783900637959326,
+   "select_win": 0.05,
+   "path": "assault_dagger_it0.zip"
+  },
+  {
+   "iter": 1,
+   "dataset": 9737,
+   "mse": 0.1078574699785377,
+   "select_win": 0.025,
+   "path": "assault_dagger_it1.zip"
+  },
+  {
+   "iter": 2,
+   "dataset": 15311,
+   "mse": 0.07865254768711108,
+   "select_win": 0.075,
+   "path": "assault_dagger_it2.zip"
+  },
+  {
+   "iter": 3,
+   "dataset": 20878,
+   "mse": 0.06925245803675668,
+   "select_win": 0.05,
+   "path": "assault_dagger_it3.zip"
+  },
+  {
+   "iter": 4,
+   "dataset": 26653,
+   "mse": 0.06614878337550904,
+   "select_win": 0.125,
+   "path": "assault_dagger_it4.zip"
+  },
+  {
+   "iter": 5,
+   "dataset": 32052,
+   "mse": 0.061818964370724774,
+   "select_win": 0.125,
+   "path": "assault_dagger_it5.zip"
+  },
+  {
+   "iter": 6,
+   "dataset": 37678,
+   "mse": 0.058812196833311965,
+   "select_win": 0.125,
+   "path": "assault_dagger_it6.zip"
+  },
+  {
+   "iter": 7,
+   "dataset": 43248,
+   "mse": 0.05591407191122721,
+   "select_win": 0.15,
+   "path": "assault_dagger_it7.zip"
+  },
+  {
+   "iter": 8,
+   "dataset": 48758,
+   "mse": 0.054279187138660825,
+   "select_win": 0.225,
+   "path": "assault_dagger_it8.zip"
+  }
+ ],
+ "best_iter": 8
+}
