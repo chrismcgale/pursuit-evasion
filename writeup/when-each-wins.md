@@ -13,7 +13,9 @@ name a regime the baseline does not serve.
   for a point intercept when a kill needs only the capture sphere. Fixed, the
   scripted law alone reaches 0.77 (`assault`) / 0.49 (`escort`), and a gate
   that hands over on the law's *own* fallback flag adds a smaller, real
-  +0.03–0.075 on top (0.80 / 0.53; held-out: 0.845 / 0.62).
+  +0.03–0.075 on top (0.80 / 0.53; held-out: 0.845 / 0.62). Fixing the law's
+  own fallback later absorbed that too, and the defender gate now hands over
+  nothing (§7.4).
 - **The gate profile does not transfer, and the failure is expensive.** Porting
   tag's "close quarters is messy, hand it to the policy" instinct to air defence
   costs **42 points** (0.70 → 0.12) — worse than not gating at all. The boundary
@@ -57,7 +59,7 @@ The learned-side results are a compact tour of when each technique works:
   about 30 ms the defender gate changes no outcome, the shield turns from a
   0.05 cost into the arm worth +0.11 to +0.21, and training the policy under
   the link changes nothing. The recipe for hardware is the scripted law under
-  the shield, with the defender gate as a small refinement on a clean volume.
+  the shield; there is no defender gate to add (§7.4).
   The earlier "gate survives a well-run Vicon volume (+0.16)" no longer holds.
 - **A physical invariant caught a bug that cross-runtime parity could not.** Both
   runtimes agreed exactly on an action-clipping rule that let a diagonal command
@@ -650,6 +652,13 @@ adds +0.185 on top of the fixed law, the same size on a third independent
 block (§7.3: +0.245, +0.270). Placing the gate point on the convoy's predicted
 position captures part of what it does, and the rest is still open.
 
+**Decision (2026-11-03): the defender gate's RL branch is removed.** The
+`scripted_fallback` branch still names the regime in Groot2 and now routes it
+to scripted in both runtimes, as the attacker gate does (§7.1), so the gated
+defender stack is the scripted law tick for tick (checked: identical outcomes
+on 100 episodes per game). Re-adding a handover has to beat the table above;
+the escort behaviour clone is the one candidate that might.
+
 The robustness picture moves with the law (`assault`, latency and presets
 re-run on block 20000+, n = 150). Scripted is 0.833 at a perfect link (was
 0.787) and the shield's clean-link cost shrinks from -0.060 to -0.013 (not
@@ -703,8 +712,9 @@ seed block from the headline tables in §6 (10000+) and are not comparable
 with them cell for cell. All numbers are on the post-2026-09-30 semantics
 (sphere-solve defender law, gate on the law's own fallback flag,
 brake-aware fence) with the defender law's old `park` fallback; §7.4 re-runs
-the `assault` latency and preset axes on the current `adaptive` fallback. Arms: the scripted law, the scripted law under the
-shield, the gate, the gate under the shield, and the policy alone.
+the `assault` latency and preset axes on the current `adaptive` fallback.
+Arms: the scripted law, the scripted law under the shield, the gate, the gate
+under the shield, and the policy alone.
 
 Two limits apply to the whole section. **The opponent always flies a perfect
 link**: only the pursuer-slot stack is degraded, so these curves measure one
@@ -806,11 +816,12 @@ is also the only arm that helps the scripted law at high latency.
 
 The `assault` gate's edge over scripted is +0.027 at 0 ms, +0.033 at 10 ms,
 and from 40 ms on the two arms produce **identical outcomes on every
-episode** (at 20-30 ms the rates are within one episode), even though the gate hands over more as the estimate ages: 11.5%
-of agent-ticks at 0 ms, 15% at 20 ms, 22% at 40 ms and 26% at 60 ms (40
-episodes, seeds 20000+). The extra handovers come from the law's fallback
-flag firing on a stale estimate. They land on engagements that are already
-lost, so the policy changes the trajectory and not the result.
+episode** (at 20-30 ms the rates are within one episode), even though the
+gate hands over more as the estimate ages: 11.5% of agent-ticks at 0 ms, 15%
+at 20 ms, 22% at 40 ms and 26% at 60 ms (40 episodes, seeds 20000+). The
+extra handovers come from the law's fallback flag firing on a stale estimate.
+They land on engagements that are already lost, so the policy changes the
+trajectory and not the result.
 
 The designed fix for that escalation was a debounce: hand over only after the
 fallback has persisted k ticks. It was built, measured and reverted on
@@ -831,8 +842,8 @@ shipped code):
 The direction is the same (each tick of delay before handover costs) and the
 size is a tenth of before, because the corrected law's fallback regime is
 small. At 20 ms and beyond every k gives the scripted result exactly, for the
-reason above. Immediate handover stays (pinned by
-`test_defender_handover_is_immediate` in both runtimes).
+reason above. (Since §7.4 the defender gate hands nothing over, so the
+debounce question is closed.)
 
 ### 8.5 Identity swaps, occlusion, noise and motor lag
 
@@ -974,14 +985,14 @@ would be the next test; neither is in reach of a fine-tune.
   `assault` the shield costs 0.03-0.06 on a clean link and is worth +0.11 to
   +0.21 from 60 ms of latency or one stale command frame. In `tag` it costs
   nothing measurable on a clean link and is worth +0.15 on `vicon_busy`.
-- **Add the defender gate on a clean volume** (old law only; see §7.4: on the
-  current law it adds nothing in `assault` and the shipped gate loses in
-  `escort`). Under the shield it adds
-  +0.040 / +0.047 on `perfect` / `vicon_lab` and +0.05 to +0.08 under noise
-  and moderate occlusion, and its paired delta is never negative on any
-  `assault` axis measured. It stops
-  mattering from about 30 ms of state latency. (§7.3 shows that most of its
-  value in `assault` could be moved into the scripted law itself.)
+- **Do not fly a defender gate** (§7.4: on the current law it adds nothing in
+  `assault` and the shipped one loses in `escort`, so its RL branch was
+  removed). On the old law, under the shield it added +0.040 / +0.047 on
+  `perfect` / `vicon_lab` and +0.05 to +0.08 under noise and moderate
+  occlusion, its paired delta was never negative on any `assault` axis
+  measured, and it stopped mattering from about 30 ms of state latency. (§7.3
+  shows that most of its value in `assault` could be moved into the scripted
+  law itself.)
 - **Do not fly the tag gate.** It loses to scripted at every rung.
 - **Latency is the number to buy down.** For `assault` at 60 ms control, 20 ms
   of state latency costs 0.11 and one stale command frame costs 0.51. A
