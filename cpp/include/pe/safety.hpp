@@ -12,16 +12,68 @@ namespace pe {
 struct Violation {
   bool geofence = false;
   bool speed = false;
-  bool any() const { return geofence || speed; }
+  bool separation = false;
+  bool any() const { return geofence || speed || separation; }
 };
+
+struct Mate {
+  Vec3 pos, vel;
+  int index;
+};
+
+// Exact mirror of safety.py:separate. Own-team separation, brake-aware: acts on
+// the predicted relative position as well as the current one, removes the
+// command component toward the teammate, pushes away in proportion to the
+// shortfall, and keeps that push through the downstream norm clip.
+inline bool separate(Vec3 pos, Vec3 vel, Vec3& a, const std::vector<Mate>& mates,
+                     const SafetyConfig& cfg, int rank) {
+  const double h = cfg.brake_horizon_s;
+  const double sep = cfg.separation_m;
+  bool fired = false;
+  for (const Mate& m : mates) {
+    const Vec3 r = (pos + h * vel) - (m.pos + h * m.vel);
+    const Vec3 r0 = pos - m.pos;
+    const double d = norm(r);
+    const double d0 = norm(r0);
+    const double dmin = std::min(d, d0);
+    if (dmin >= sep) continue;
+    Vec3 n;
+    if (d > 1e-9) n = r / d;
+    else if (d0 > 1e-9) n = r0 / d0;
+    else n = Vec3{0.0, 0.0, rank < m.index ? 1.0 : -1.0};
+    const double along = dot(a, n);
+    if (along < 0) a = a - along * n;
+    const double c = cfg.correction_gain * (sep - dmin);
+    a = a + c * n;
+    const double n2 = dot(a, a);
+    if (n2 > 1.0) {
+      const double p = dot(a, n);
+      if (p >= 1.0) {
+        a = n;
+      } else {
+        const Vec3 perp = a - p * n;
+        const double pn = norm(perp);
+        if (pn > 1e-12) {
+          const double kk = std::sqrt(1.0 - p * p) / pn;
+          a = p * n + kk * perp;
+        }
+      }
+    }
+    fired = true;
+  }
+  return fired;
+}
 
 // Exact mirror of src/pursuit_evasion/safety.py:filter_action. Corrects `action`
 // in place to respect the geofence and speed cap; returns which fired.
 inline Violation filter_action(Vec3 pos, Vec3 vel, Vec3& action, double vmax,
                                double half_extent, double z_min, double z_max,
-                               const SafetyConfig& cfg) {
+                               const SafetyConfig& cfg,
+                               const std::vector<Mate>& mates = {}, int rank = 0) {
   Violation v;
   for (int k = 0; k < 3; ++k) action[k] = clamp(action[k], -1.0, 1.0);
+  if (cfg.separation_m > 0 && !mates.empty())
+    v.separation = separate(pos, vel, action, mates, cfg, rank);
 
   double lo_xy = -(half_extent - cfg.geofence_margin);
   double hi_xy = half_extent - cfg.geofence_margin;
@@ -86,9 +138,10 @@ inline Violation filter_action(Vec3 pos, Vec3 vel, Vec3& action, double vmax,
 
 class TeamSafetyFilter {
  public:
-  int n_geofence = 0, n_speed = 0;
+  int n_geofence = 0, n_speed = 0, n_separation = 0;
   explicit TeamSafetyFilter(SafetyConfig cfg = {}) : cfg_(cfg) {}
-  void reset() { n_geofence = n_speed = 0; }
+  void reset() { n_geofence = n_speed = n_separation = 0; }
+  const SafetyConfig& cfg() const { return cfg_; }
 
   std::vector<double> apply(const TeamView& v, const std::vector<double>& team_action) {
     const auto& a = v.arena;
@@ -96,13 +149,18 @@ class TeamSafetyFilter {
     for (int i = 0; i < v.n_self(); ++i) {
       if (!v.self_alive[i]) continue;
       Vec3 act{team_action[i * 3], team_action[i * 3 + 1], team_action[i * 3 + 2]};
+      std::vector<Mate> mates;
+      if (cfg_.separation_m > 0)
+        for (int j = 0; j < v.n_self(); ++j)
+          if (j != i && v.self_alive[j]) mates.push_back({v.self_pos[j], v.self_vel[j], j});
       Violation viol = filter_action(v.self_pos[i], v.self_vel[i], act, v.vmax,
-                                     a->half_extent, a->z_min, a->z_max, cfg_);
+                                     a->half_extent, a->z_min, a->z_max, cfg_, mates, i);
       out[i * 3 + 0] = act.x;
       out[i * 3 + 1] = act.y;
       out[i * 3 + 2] = act.z;
       n_geofence += viol.geofence ? 1 : 0;
       n_speed += viol.speed ? 1 : 0;
+      n_separation += viol.separation ? 1 : 0;
     }
     return out;
   }

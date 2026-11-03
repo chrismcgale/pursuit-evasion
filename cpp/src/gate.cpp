@@ -34,8 +34,12 @@ std::vector<double> GatedController::act(const TeamView& v) {
   // once per tick; its flags feed `scripted_fallback` (mirrors gating.py).
   std::vector<char> fallback;
   auto* law = dynamic_cast<GuardDefenders*>(scripted_);
+  auto t0 = Clock::now();
   std::vector<double> s = law ? law->plan(v, fallback) : scripted_->act(v);
+  if (timing) timing->add(timing_prefix + "scripted_law/team", us_since(t0));
+  t0 = Clock::now();
   std::vector<double> r = rl_->act(v);
+  if (timing) timing->add(timing_prefix + "onnx_policy/team", us_since(t0));
   int n = v.n_self();
   std::vector<double> out(n * 3, 0.0);
 
@@ -43,12 +47,14 @@ std::vector<double> GatedController::act(const TeamView& v) {
   bb->set("thresholds", thr_);
   for (int i = 0; i < n; ++i) {
     if (!v.self_alive[i]) continue;
+    t0 = Clock::now();
     AgentFeatures f = agent_features(v, i);
     if (law) f.scripted_fallback = fallback[i] != 0;
     bb->set("features", f);
     bb->set("mode", std::string("scripted"));
     tree_->tickOnce();
     std::string mode = bb->get<std::string>("mode");
+    if (timing) timing->add(timing_prefix + "bt_tick/aircraft", us_since(t0));
     mode_counts[mode] += 1;
     const std::vector<double>& src = (mode == "rl") ? r : s;
     for (int k = 0; k < 3; ++k) out[i * 3 + k] = clamp(src[i * 3 + k], -1.0, 1.0);

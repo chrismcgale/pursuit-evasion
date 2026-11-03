@@ -40,8 +40,9 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-__all__ = ["LinkProfile", "LinkedController", "PERFECT", "VICON_LAB",
-           "VICON_BUSY", "FIELD_DEGRADED", "PRESETS"]
+__all__ = ["LinkProfile", "LinkedController", "CorruptionStream", "TickDraws",
+           "write_tape", "PERFECT", "VICON_LAB", "VICON_BUSY", "FIELD_DEGRADED",
+           "PRESETS"]
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,108 @@ class _Burst:
         return self.on
 
 
+@dataclass
+class TickDraws:
+    """Every random outcome the link uses on one control tick.
+
+    None of these depend on the state of the game or on what any controller
+    commanded: they are a pure function of (seed, stream index, tick). That is
+    what makes a corruption *tape* possible (``write_tape``) — the C++ runtime
+    replays the same realisation without reimplementing numpy's generators.
+    """
+
+    pos_self: np.ndarray | None     # additive noise, (n_self, 3); None = off
+    pos_opp: np.ndarray | None
+    vel_self: np.ndarray | None
+    vel_opp: np.ndarray | None
+    drop_self: list                 # occlusion burst state per body
+    drop_opp: list
+    swap: tuple | None              # opponent pair whose labels are exchanged
+    lost_packet: bool
+
+
+class CorruptionStream:
+    """The link's random draws, in the exact order ``LinkedController`` makes them.
+
+    Per tick: position noise (self, opp), velocity noise (self, opp), one
+    occlusion-burst tick per body (self then opp), one swap-burst tick (plus a
+    pair choice on onset, only with >= 2 opponents), and from the second tick on
+    one packet-loss draw. Nothing in here reads the view or the command, so the
+    same stream serves the live wrapper and the tape dumper.
+    """
+
+    def __init__(self, profile: LinkProfile, rng: np.random.Generator,
+                 n_self: int, n_opp: int):
+        p = profile
+        self.p, self.rng = p, rng
+        self.n_self, self.n_opp = n_self, n_opp
+        self._swap = _Burst(p.swap_p, p.swap_burst, rng)
+        self._self_drop = [_Burst(p.dropout_p, p.dropout_burst, rng) for _ in range(n_self)]
+        self._opp_drop = [_Burst(p.dropout_p, p.dropout_burst, rng) for _ in range(n_opp)]
+        self._swap_pair: tuple[int, int] | None = None
+        self.t = 0
+
+    def next(self) -> TickDraws:
+        p, rng = self.p, self.rng
+        shp_s, shp_o = (self.n_self, 3), (self.n_opp, 3)
+        pos_s = rng.normal(0, p.pos_noise_m, shp_s) if p.pos_noise_m > 0 else None
+        pos_o = rng.normal(0, p.pos_noise_m, shp_o) if p.pos_noise_m > 0 else None
+        vel_s = rng.normal(0, p.vel_noise_mps, shp_s) if p.vel_noise_mps > 0 else None
+        vel_o = rng.normal(0, p.vel_noise_mps, shp_o) if p.vel_noise_mps > 0 else None
+        drop_s = [b.tick() for b in self._self_drop]
+        drop_o = [b.tick() for b in self._opp_drop]
+        swap = None
+        if self.n_opp >= 2:
+            was_on = self._swap.on
+            if self._swap.tick():
+                if not was_on:
+                    i, j = rng.choice(self.n_opp, size=2, replace=False)
+                    self._swap_pair = (int(i), int(j))
+                swap = self._swap_pair
+            else:
+                self._swap_pair = None
+        # the FC has no previous frame to hold on the first tick, so no draw
+        lost = bool(p.packet_loss_p > 0 and self.t > 0 and rng.random() < p.packet_loss_p)
+        self.t += 1
+        return TickDraws(pos_s, pos_o, vel_s, vel_o, drop_s, drop_o, swap, lost)
+
+
+def write_tape(path, profile: LinkProfile, seed: int, streams, n_self: int, n_opp: int,
+               n_ticks: int) -> None:
+    """Dump the corruption realisation for ``streams`` to a text tape.
+
+    The C++ runtime (``pe_run --link <preset> --link-tape <file>``) consumes it
+    and reproduces Python's degraded runs bit for bit, the same way
+    ``--starts-file`` carries spawns across. Stream ``k`` is what a
+    ``LinkedController(seed=seed)`` uses after its ``k``-th ``reset()`` — the
+    constructor resets once, so under ``run_batch`` episode ``e`` is stream
+    ``e + 1``. Floats are written with ``repr`` (shortest round-trip), so
+    ``strtod`` recovers them exactly. Line format, one per tick::
+
+        stream t  pos_self(3 n_self) pos_opp(3 n_opp) vel_self vel_opp
+                  drop_self(n_self) drop_opp(n_opp) swap_i swap_j lost
+
+    Noise that is off is written as 0 (and not applied); no swap is -1 -1.
+    """
+    with open(path, "w") as fh:
+        fh.write(f"# pe-link-tape v1 profile={profile.name} seed={seed} "
+                 f"n_self={n_self} n_opp={n_opp} n_ticks={n_ticks}\n")
+        for k in streams:
+            st = CorruptionStream(profile, np.random.default_rng([seed or 0, k]),
+                                  n_self, n_opp)
+            for t in range(n_ticks):
+                d = st.next()
+                vals = []
+                for arr, n in ((d.pos_self, n_self), (d.pos_opp, n_opp),
+                               (d.vel_self, n_self), (d.vel_opp, n_opp)):
+                    vals += ([repr(float(x)) for x in arr.reshape(-1)]
+                             if arr is not None else ["0"] * (3 * n))
+                vals += [str(int(b)) for b in d.drop_self + d.drop_opp]
+                vals += [str(d.swap[0]), str(d.swap[1])] if d.swap else ["-1", "-1"]
+                vals.append(str(int(d.lost_packet)))
+                fh.write(f"{k} {t} " + " ".join(vals) + "\n")
+
+
 class LinkedController:
     """Wraps a controller so it sees a degraded estimate and commands a real link.
 
@@ -200,12 +303,16 @@ class LinkedController:
         self._last_cmd = None           # last command the FC received (loss hold)
         self._thrust = None             # first-order motor state
         self._t = 0
-        self._self_drop = None
-        self._opp_drop = None
-        self._swap = _Burst(p.swap_p, p.swap_burst, self.rng)
+        self._stream: CorruptionStream | None = None   # built on the first view
+        self._draws: TickDraws | None = None
         self._swap_pair: tuple[int, int] | None = None
         self.last_estimate: dict | None = None
         self.n_dropout = self.n_swap = self.n_lost_packet = 0
+        # History needed by the delay: ceil(latency in ticks) + 1 views, and
+        # round(cmd latency in ticks) + 1 commands. (Was a fixed 64-view cap,
+        # silently wrong past 63 ticks of latency — REVIEW #14.)
+        self._hist = max(2, int(math.ceil(p.obs_latency_s / self.dt)) + 1)
+        self._cmd_hist = int(round(p.cmd_latency_s / self.dt)) + 1 if p.cmd_latency_s > 0 else 1
 
     # ------------------------------------------------------------- perception
     def _delayed(self, view):
@@ -242,39 +349,35 @@ class LinkedController:
     def _corrupt(self, view):
         p = self.profile
         n_self, n_opp = len(view.self_pos), len(view.opp_pos)
-        if self._self_drop is None:
-            self._self_drop = [_Burst(p.dropout_p, p.dropout_burst, self.rng)
-                               for _ in range(n_self)]
-            self._opp_drop = [_Burst(p.dropout_p, p.dropout_burst, self.rng)
-                              for _ in range(n_opp)]
+        if self._stream is None:
+            self._stream = CorruptionStream(p, self.rng, n_self, n_opp)
+        d = self._draws = self._stream.next()
 
         self_pos = np.array(view.self_pos, dtype=np.float64, copy=True)
         self_vel = np.array(view.self_vel, dtype=np.float64, copy=True)
         opp_pos = np.array(view.opp_pos, dtype=np.float64, copy=True)
         opp_vel = np.array(view.opp_vel, dtype=np.float64, copy=True)
 
-        if p.pos_noise_m > 0:
-            self_pos += self.rng.normal(0, p.pos_noise_m, self_pos.shape)
-            opp_pos += self.rng.normal(0, p.pos_noise_m, opp_pos.shape)
-        if p.vel_noise_mps > 0:
-            self_vel += self.rng.normal(0, p.vel_noise_mps, self_vel.shape)
-            opp_vel += self.rng.normal(0, p.vel_noise_mps, opp_vel.shape)
+        if d.pos_self is not None:
+            self_pos += d.pos_self
+            opp_pos += d.pos_opp
+        if d.vel_self is not None:
+            self_vel += d.vel_self
+            opp_vel += d.vel_opp
 
         # Occlusion: the solver simply stops publishing that body, so the ground
         # station holds its last pose. Holding (not zeroing, not extrapolating) is
-        # what every mocap bridge actually does.
+        # what every mocap bridge actually does. (No estimate to hold on the
+        # first tick: the bursts still advance, nothing is applied.)
         if self._held is not None:
-            for i, b in enumerate(self._self_drop):
-                if b.tick():
+            for i, on in enumerate(d.drop_self):
+                if on:
                     self_pos[i], self_vel[i] = self._held[0][i], self._held[1][i]
                     self.n_dropout += 1
-            for j, b in enumerate(self._opp_drop):
-                if b.tick():
+            for j, on in enumerate(d.drop_opp):
+                if on:
                     opp_pos[j], opp_vel[j] = self._held[2][j], self._held[3][j]
                     self.n_dropout += 1
-        else:
-            for b in self._self_drop + self._opp_drop:
-                b.tick()
 
         # Identity swap. Two 65 mm airframes with the same marker pattern crossing
         # inside a metre is the canonical way a Vicon solve mislabels, and it is
@@ -282,28 +385,28 @@ class LinkedController:
         # perfectly accurate, only the labels are wrong, so nothing downstream can
         # detect it from residuals. The controller confidently chases the wrong
         # aircraft until the solve recovers.
-        if n_opp >= 2:
-            was_on = self._swap.on
-            if self._swap.tick():
-                if not was_on:
-                    i, j = self.rng.choice(n_opp, size=2, replace=False)
-                    self._swap_pair = (int(i), int(j))
-                    self.n_swap += 1
-                i, j = self._swap_pair
-                opp_pos[[i, j]] = opp_pos[[j, i]]
-                opp_vel[[i, j]] = opp_vel[[j, i]]
-            else:
-                self._swap_pair = None
+        if d.swap is not None:
+            if self._swap_pair is None:
+                self.n_swap += 1
+            i, j = d.swap
+            opp_pos[[i, j]] = opp_pos[[j, i]]
+            opp_vel[[i, j]] = opp_vel[[j, i]]
+        self._swap_pair = d.swap
 
         self._held = (self_pos.copy(), self_vel.copy(), opp_pos.copy(), opp_vel.copy())
         return replace(view, self_pos=self_pos, self_vel=self_vel,
                        opp_pos=opp_pos, opp_vel=opp_vel)
 
     # ----------------------------------------------------------------- command
-    def _uplink(self, cmd: np.ndarray) -> np.ndarray:
-        """Transport delay, packet loss, motor lag and thrust budget."""
+    def _uplink(self, cmd: np.ndarray, lost: bool = False) -> np.ndarray:
+        """Transport delay, packet loss, motor lag and thrust budget.
+
+        ``lost`` is this tick's packet-loss draw (``TickDraws.lost_packet``).
+        """
         p = self.profile
         self._cmds.append(np.array(cmd, dtype=np.float64, copy=True))
+        if len(self._cmds) > self._cmd_hist:
+            self._cmds.pop(0)
 
         # Zero-order hold, not interpolation: a radio delivers whole frames.
         if p.cmd_latency_s > 0:
@@ -313,8 +416,7 @@ class LinkedController:
             sent = self._cmds[-1]
 
         # A lost frame means the FC never hears the update and flies the last one.
-        if p.packet_loss_p > 0 and self._last_cmd is not None \
-                and self.rng.random() < p.packet_loss_p:
+        if lost and self._last_cmd is not None:
             self.n_lost_packet += 1
             sent = self._last_cmd
         self._last_cmd = sent
@@ -340,7 +442,7 @@ class LinkedController:
             self.last_estimate = None
             return self.inner.act(view)     # bypass: no RNG draws, bit-identical
         self._views.append(view)
-        if len(self._views) > 64:
+        if len(self._views) > self._hist:
             self._views.pop(0)
         est = self._corrupt(self._delayed(view))
         # Kept for the trace/explorer: the single most useful thing to render on
@@ -350,11 +452,11 @@ class LinkedController:
         self.last_estimate = {
             "self_pos": np.asarray(est.self_pos).tolist(),
             "opp_pos": np.asarray(est.opp_pos).tolist(),
-            "swapped": self._swap_pair if self._swap.on else None,
+            "swapped": self._swap_pair,
         }
         cmd = np.asarray(self.inner.act(est), dtype=np.float64).reshape(-1, 3)
         self._t += 1
-        return self._uplink(cmd).reshape(-1)
+        return self._uplink(cmd, self._draws.lost_packet).reshape(-1)
 
     def stats(self) -> dict:
         return {"dropouts": self.n_dropout, "swaps": self.n_swap,

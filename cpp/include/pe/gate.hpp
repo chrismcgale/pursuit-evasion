@@ -8,6 +8,7 @@
 
 #include "pe/config.hpp"
 #include "pe/controller.hpp"
+#include "pe/timing.hpp"
 
 namespace BT {
 class Groot2Publisher;
@@ -30,6 +31,10 @@ class GatedController : public Controller {
   std::vector<double> act(const TeamView& v) override;
 
   std::map<std::string, int> mode_counts{{"scripted", 0}, {"rl", 0}};
+  // Optional per-stage timing (pe_bench). Null in every evaluation path, and
+  // when set it only reads the clock: the actions are unchanged.
+  TimingSink* timing = nullptr;
+  std::string timing_prefix;
 
  private:
   Team team_;

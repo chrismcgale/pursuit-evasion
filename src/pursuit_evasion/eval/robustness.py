@@ -216,16 +216,27 @@ def control_rate_configs(game_key: str, repeats=(1, 2, 3, 5, 8)) -> list[tuple]:
       * capture checking is forced to substep rate for ALL levels, because tag
         normally tests capture once per control step — without this, a faster
         control rate would raise the capture rate purely by sampling the
-        proximity test more often, which has nothing to do with control.
+        proximity test more often, which has nothing to do with control;
+      * a missile's ``burn_steps`` is counted in control steps, so it is
+        rescaled like ``max_steps`` to keep the burn TIME fixed. Before
+        2026-11-03 it was not: at dt=20 ms an assault missile burned 2.4 s
+        instead of 7.2 s, ran out short of the asset, and every arm "won"
+        1.00 — a fuel artifact, not an easier game.
     """
     g = make_game(game_key)
     base_repeat = g.episode.control_repeat
     base_steps = g.episode.max_steps
     out = []
     for r in repeats:
-        ep = replace(g.episode, control_repeat=r,
-                     max_steps=int(round(base_steps * base_repeat / r)))
-        spec = replace(g, episode=ep, capture_substeps=True)
+        k = base_repeat / r
+        ep = replace(g.episode, control_repeat=r, max_steps=int(round(base_steps * k)))
+
+        def rescale(dyn):
+            return dyn if dyn.burn_steps <= 0 else replace(
+                dyn, burn_steps=int(round(dyn.burn_steps * k)))
+        arena = replace(g.arena, pursuer_dyn=rescale(g.arena.pursuer_dyn),
+                        evader_dyn=rescale(g.arena.evader_dyn))
+        spec = replace(g, arena=arena, episode=ep, capture_substeps=True)
         out.append((g.arena.timestep * r, ep, spec))
     return out
 
@@ -249,7 +260,15 @@ def preset_ladder() -> list[tuple[float, LinkProfile]]:
 
 
 def sweep(game_key: str, axis: str, episodes: int, seed0: int, models: Path,
-          link_seed: int = 4242) -> dict:
+          link_seed: int = 4242, arms: list[str] | None = None,
+          scripted_safe: bool = False) -> dict:
+    """One axis, every arm, paired (same seeds and corruption per arm).
+
+    ``scripted_safe`` adds the scripted law under the shield (the hardware
+    recipe the writeup discusses); ``arms`` keeps only the named arms. Neither
+    changes what any arm computes, so runs that differ only in these can be
+    merged arm by arm.
+    """
     game = make_game(game_key)
     from ..scripted import default_controllers
     _, opponent = default_controllers(game_key)
@@ -266,6 +285,13 @@ def sweep(game_key: str, axis: str, episodes: int, seed0: int, models: Path,
     rows = []
     for lv, profile, spec in levels:
         built = build_controllers(models, game_key)
+        if scripted_safe:
+            from ..safety import ShieldedController
+            built = {"scripted": built["scripted"],
+                     "scripted_safe": ShieldedController(default_controllers(game_key)[0]),
+                     **{k: v for k, v in built.items() if k != "scripted"}}
+        if arms:
+            built = {k: v for k, v in built.items() if k in arms}
         entry = {"level": lv, "profile": profile.name, "arms": {}}
         for name, ctrl in built.items():
             linked = LinkedController(ctrl, profile, seed=link_seed,
@@ -383,6 +409,10 @@ def main(argv=None):
     p.add_argument("--models", default="models")
     p.add_argument("--out", default="results")
     p.add_argument("--plot", action="store_true")
+    p.add_argument("--scripted-safe", action="store_true",
+                   help="add the scripted law under the shield as an arm")
+    p.add_argument("--arms", default="",
+                   help="comma-separated arms to keep (default: all)")
     args = p.parse_args(argv)
 
     axes = (list(AXES) + ["presets", "control_rate"]) if args.axis == "all" else [args.axis]
@@ -390,7 +420,9 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     for axis in axes:
         print(f"\n=== {args.game} / {axis} ({args.episodes} eps per point) ===")
-        res = sweep(args.game, axis, args.episodes, args.seed, Path(args.models))
+        res = sweep(args.game, axis, args.episodes, args.seed, Path(args.models),
+                    arms=[a for a in args.arms.split(",") if a] or None,
+                    scripted_safe=args.scripted_safe)
         (out / f"robust_{args.game}_{axis}.json").write_text(json.dumps(res, indent=1))
         print("\n" + markdown(res))
         if args.plot:

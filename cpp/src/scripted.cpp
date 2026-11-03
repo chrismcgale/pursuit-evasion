@@ -278,11 +278,23 @@ std::vector<double> GuardDefenders::plan(const TeamView& v,
       if (t_int && *t_int <= t_asset) {
         d = *t_int > 0.0 ? unit(rel + v.opp_vel[j] * (*t_int)) : unit(rel);
       } else {
-        // can't catch it — be where it has to come through
         fallback[i] = 1;
-        Vec3 to_gate = gate_point(v.opp_pos[j], asset) - pos;
-        d = norm(to_gate) < 0.8 ? unit(rel)   // on station: hold and face the threat
-                                : unit(to_gate);
+        std::string mode = fallback_rule;
+        if (mode == "adaptive") mode = norm(v.asset_vel) > 1e-6 ? "lead_gate" : "pursue";
+        if (mode == "pursue") {
+          d = unit(rel);   // no straight-line intercept; chase anyway
+        } else {
+          Vec3 guard = asset;
+          if (mode == "lead_gate") {
+            // be where the asset WILL be when the threat arrives
+            const double t = std::min(t_asset, lead_horizon_s);
+            guard = asset + v.asset_vel * t;
+          }
+          // can't catch it — be where it has to come through
+          Vec3 to_gate = gate_point(v.opp_pos[j], guard) - pos;
+          d = norm(to_gate) < 0.8 ? unit(rel)   // on station: hold and face the threat
+                                  : unit(to_gate);
+        }
       }
     }
     out[i * 3 + 0] = clamp(d.x, -1, 1);

@@ -52,12 +52,28 @@ class GuardDefenders(BaseController):
     name = "scripted_defenders"
 
     def __init__(self, standoff: float = 9.0, min_standoff: float = 3.5,
-                 patrol_radius: float = 6.0, intercept_radius: float = 0.7):
+                 patrol_radius: float = 6.0, intercept_radius: float = 0.7,
+                 fallback: str = "adaptive", lead_horizon_s: float = 10.0):
         self.standoff = standoff        # gate distance from the asset (m)
         self.min_standoff = min_standoff
         self.patrol_radius = patrol_radius
         # solve the intercept against this sphere, not the point (0 = legacy)
         self.intercept_radius = intercept_radius
+        # what to do when no intercept exists (the regime the gate hands over):
+        #   park       fly to the gate point at the asset's CURRENT position
+        #              (the rule before 2026-11-03; reproduces old numbers)
+        #   pursue     fly straight at the assigned threat
+        #   lead_gate  gate point at the asset's position when the threat arrives
+        #   adaptive   pursue if the asset is static, lead_gate if it moves
+        # 'adaptive' was chosen on seed blocks 10000/110000 and confirmed on a
+        # fresh block 30000 (n=200, paired vs park): assault +0.040
+        # [+0.015, +0.070], escort +0.180 [+0.115, +0.245]. Parking guarded
+        # where a moving convoy used to be, and in assault a straight-line
+        # "no intercept" still left kills a chase could take (writeup §7.4).
+        if fallback not in ("park", "pursue", "lead_gate", "adaptive"):
+            raise ValueError(fallback)
+        self.fallback = fallback
+        self.lead_horizon_s = lead_horizon_s
 
     def _intercept_time(self, rel: np.ndarray, vel: np.ndarray, vp: float) -> float | None:
         return lead_intercept_time_sphere(rel, vel, vp, self.intercept_radius)
@@ -119,6 +135,8 @@ class GuardDefenders(BaseController):
         if not view.has_asset:
             return actions.reshape(-1), fallback
         asset = view.asset_pos
+        # a view without an asset velocity is a static asset (C++ defaults to 0)
+        asset_vel = view.asset_vel if view.asset_vel is not None else np.zeros(3)
         assign = self._assign(view, asset)
 
         for i in range(n_self):
@@ -140,9 +158,22 @@ class GuardDefenders(BaseController):
                 aim = rel + view.opp_vel[j] * t_int
                 actions[i] = unit(aim) if t_int > 0.0 else unit(rel)
             else:
-                # can't catch it — be where it has to come through
                 fallback[i] = True
-                gate = self._gate_point(view.opp_pos[j], asset)
+                mode = self.fallback
+                if mode == "adaptive":
+                    moving = float(np.linalg.norm(asset_vel)) > 1e-6
+                    mode = "lead_gate" if moving else "pursue"
+                if mode == "pursue":
+                    # no intercept on a straight-line solve; chase anyway
+                    actions[i] = unit(rel)
+                    continue
+                guard = asset
+                if mode == "lead_gate":
+                    # be where the asset WILL be when the threat arrives
+                    t = min(t_asset, self.lead_horizon_s)
+                    guard = asset + asset_vel * t
+                # can't catch it — be where it has to come through
+                gate = self._gate_point(view.opp_pos[j], guard)
                 to_gate = gate - pos
                 if float(np.linalg.norm(to_gate)) < 0.8:
                     # on station: hold the gate and face the threat

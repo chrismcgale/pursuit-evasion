@@ -24,15 +24,18 @@ The objective games (``assault`` / ``escort``) add two more profiles, because
 the regime where the scripted controller is weak is a *different* regime:
 
     Selector "gate[defender]"
-      ├─ Sequence  scripted fallback?    → MODE = RL       (the law itself has no
-      │                                                     intercept and parks
-      │                                                     on a static gate)
+      ├─ Sequence  scripted fallback?    → MODE = SCRIPTED (the law has no
+      │                                                     intercept; its own
+      │                                                     fallback rule flies it.
+      │                                                     Was RL until 2026-11-03)
       ├─ Sequence  clean intercept?      → MODE = SCRIPTED (lead geometry works)
       └─ MODE = SCRIPTED
 
-The attacker (missile) profile hands over **nothing** — measured, not assumed.
-Every RL branch tried there lost breach rate, because a committed run-in is
-exactly what a guidance law is for. See ``_attacker_predicates``.
+Both objective-game profiles hand over **nothing** — measured, not assumed.
+Every RL branch tried on the attacker side lost breach rate, because a
+committed run-in is exactly what a guidance law is for (``_attacker_predicates``),
+and the defender's one handover stopped paying once the law's own fallback was
+fixed (``_defender_predicates``, point 4).
 """
 from __future__ import annotations
 
@@ -120,7 +123,8 @@ def _evader_predicates():
 
 
 def _defender_predicates():
-    """Air-defence handoff: exactly the scripted law's own fallback regime.
+    """Air-defence profile: names the scripted law's own fallback regime and,
+    since 2026-11-03, routes it to scripted (hands over nothing).
 
     History, because each step was measured (assault, defender win rate):
 
@@ -151,15 +155,14 @@ def _defender_predicates():
            old scripted + old gate ..... 0.730     0.495   (previously shipped)
            sphere scripted ............. 0.795     0.545
            sphere scripted + old gate .. (loses: -0.13 / -0.08 on blocks A+B)
-           sphere scripted + this gate . 0.845     0.620   <-- shipped
+           sphere scripted + this gate . 0.845     0.620   (shipped until 2026-11-03)
 
-       The policy still earns its handover (+0.05 / +0.075 over its own
-       scripted law, both CIs exclude 0), but the gap is now a few points, not
+       The policy still earned its handover (+0.05 / +0.075 over its own
+       scripted law, both CIs exclude 0), but the gap was a few points, not
        seventeen: most of the old gate's gain was a fix the scripted law could
        make itself. And gating on the old proxy *over* the fixed law is
        actively harmful — the clean version of the thesis: hand over where the
        law is undefined, read off the law, not off an approximation of it.
-       NB: the RL branch is still the DAgger clone of the OLD law.
 
     3. *Immediate handover* (debounce measured and lost, on the old predicate):
 
@@ -169,12 +172,24 @@ def _defender_predicates():
            k=3           0.49    0.35    0.19    0.06
 
        Genuine fallback regimes are 20-30-tick streaks, so a debounce is pure
-       delay against an 11 m/s missile. Pinned by
-       ``test_defender_handover_is_immediate``.
+       delay against an 11 m/s missile.
+
+    4. *Nothing left to hand over* (2026-11-03, writeup §7.4). The law's
+       fallback was itself the gap: it parked on a gate point at the asset's
+       current position. With the ``adaptive`` fallback (pursue if the asset is
+       static, guard its predicted position if it moves) the scripted law gains
+       +0.040 (assault) / +0.180 (escort) on a fresh block, and handing the
+       regime to any policy then adds nothing in assault and the shipped one
+       LOSES -0.105 in escort (fresh block 30000, n=200, paired). So the RL
+       branch is gone, as on the attacker side: the branch still names the
+       regime in Groot2 and routes it to scripted. Pinned by
+       ``test_defender_gate_hands_over_nothing`` in both runtimes. The one
+       open lead is escort's behaviour-cloned DAgger iteration 0 (+0.185 over
+       the fixed law); if it is ever re-added, it must beat that table.
     """
     return [
-        # the scripted law itself has no intercept — it parks on a static gate point
-        ("scripted_fallback", lambda f, t: f.scripted_fallback, MODE_RL),
+        # the scripted law has no intercept; its own fallback rule flies it
+        ("scripted_fallback", lambda f, t: f.scripted_fallback, MODE_SCRIPTED),
         # kept for legibility in Groot2: this is the regime scripted owns outright
         ("clean_intercept", lambda f, t: (not f.scripted_fallback) and f.intercept_ahead,
          MODE_SCRIPTED),
@@ -202,17 +217,18 @@ def _attacker_predicates():
     deliberately a no-op, kept only because it documents the run-in regime
     legibly in Groot2.
 
-    Read this against ``_defender_predicates``: same game, same machinery,
-    opposite verdict. The defender gains 16 points from exactly one handoff; the
-    attacker gains nothing from any. The difference is not "which side is
-    harder" — it is that the defender's scripted law has a regime where it is
-    **structurally undefined** (no positive intercept root, so it parks on a
-    static gate point) and the missile's guidance law has no such regime. A
-    committed run-in is precisely the case a lead-guidance law is for.
+    Read this against ``_defender_predicates``: same game, same machinery. The
+    defender gained 16 points from exactly one handoff on its original law; the
+    attacker gains nothing from any. The difference was that the defender's
+    scripted law had a regime where it was **structurally undefined** (no
+    positive intercept root, so it parked on a static gate point) and the
+    missile's guidance law has no such regime. Since 2026-11-03 the defender
+    law fills that regime itself, and its gate hands over nothing either.
 
     Generalised, that is the project's main transferable claim: hand a regime to
     the policy where the scripted controller is *undefined*, not merely where it
-    is imprecise or where the situation merely feels messy.
+    is imprecise or where the situation merely feels messy — and first check
+    whether the scripted law can be made to cover it.
     """
     return [
         # committed run-in: no lateral authority left to spend, fly the guidance law

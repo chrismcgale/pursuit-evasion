@@ -144,10 +144,14 @@ def test_packet_loss_holds_the_previous_command():
     p = LinkProfile(packet_loss_p=1.0)
     link = LinkedController(_Const(1.0), p, dt=0.06, rng=np.random.default_rng(0))
     link.reset()
-    first = link._uplink(np.full((2, 3), 0.5))
-    second = link._uplink(np.full((2, 3), -1.0))          # never arrives
+    first = link._uplink(np.full((2, 3), 0.5), lost=True)  # nothing to hold yet
+    second = link._uplink(np.full((2, 3), -1.0), lost=True)   # never arrives
     np.testing.assert_allclose(first, second)
     assert link.n_lost_packet == 1
+    # the stream draws loss from the second tick on (no previous frame before)
+    from pursuit_evasion.env.link import CorruptionStream
+    st = CorruptionStream(p, np.random.default_rng(0), 2, 2)
+    assert [st.next().lost_packet for _ in range(4)] == [False, True, True, True]
 
 
 def test_battery_sag_reduces_authority_over_the_flight():
@@ -189,3 +193,41 @@ class _Const:
 
     def act(self, view):
         return np.full((2, 3), self.v)
+
+
+def test_history_is_not_capped_below_the_latency():
+    """REVIEW #14: a fixed 64-view cap silently clamped latencies past 63 ticks."""
+    from pursuit_evasion.env.link import CorruptionStream  # noqa: F401
+    p = LinkProfile(obs_latency_s=0.06 * 80)                # 80 ticks
+    link = LinkedController(_Const(1.0), p, dt=0.06, rng=np.random.default_rng(0))
+    link.reset()
+    assert link._hist >= 81
+
+
+def test_tape_replays_the_live_stream():
+    """write_tape must emit exactly the draws LinkedController consumes."""
+    import tempfile
+    from pursuit_evasion.env.link import CorruptionStream, write_tape
+    prof = LinkProfile(name="x", pos_noise_m=0.1, vel_noise_mps=0.2, dropout_p=0.2,
+                       dropout_burst=3, swap_p=0.2, swap_burst=4, packet_loss_p=0.3)
+    with tempfile.NamedTemporaryFile("r", suffix=".txt") as fh:
+        write_tape(fh.name, prof, 4242, [1], 2, 2, 30)
+        rows = [ln.split() for ln in fh if not ln.startswith("#")]
+    # the tape equals a fresh stream ...
+    st = CorruptionStream(prof, np.random.default_rng([4242, 1]), 2, 2)
+    for r in rows:
+        d = st.next()
+        assert float(r[2]) == d.pos_self[0, 0] and float(r[25]) == d.vel_opp[1, 2]
+        assert [int(x) for x in r[26:30]] == [int(b) for b in d.drop_self + d.drop_opp]
+        sw = (int(r[30]), int(r[31]))
+        assert (None if sw == (-1, -1) else sw) == d.swap
+        assert bool(int(r[32])) == d.lost_packet
+    # ... and the live wrapper consumed exactly that stream (its counters agree)
+    scripted, opp = default_controllers("tag")
+    link = LinkedController(scripted, prof, seed=4242, dt=0.1)
+    n = len(_episode(link, opp, steps=30))          # one reset -> stream 1
+    rows = rows[:n]
+    drops = sum(int(x) for r in rows[1:] for x in r[26:30])
+    swaps = sum(1 for a, b in zip([["-1"] * 3] + rows, rows) if b[30] != "-1" and a[-3] == "-1")
+    lost = sum(int(r[32]) for r in rows)
+    assert link.stats() == {"dropouts": drops, "swaps": swaps, "lost_packets": lost, "ticks": n}

@@ -51,7 +51,8 @@ add_library(pe_core
   src/scripted.cpp
   src/onnx_policy.cpp
   src/bt_nodes.cpp
-  src/gate.cpp)
+  src/gate.cpp
+  src/link.cpp)
 target_include_directories(pe_core PUBLIC
   ${CMAKE_SOURCE_DIR}/include
   ${MUJOCO_ROOT}/include)
@@ -70,6 +71,11 @@ add_executable(pe_run src/runner.cpp)
 target_link_libraries(pe_run PRIVATE pe_core)
 set_target_properties(pe_run PROPERTIES BUILD_RPATH "${MUJOCO_ROOT}")
 
+# --- per-tick timing breakdown of the control stack (ROADMAP #6) ---------------
+add_executable(pe_bench src/bench.cpp)
+target_link_libraries(pe_bench PRIVATE pe_core)
+set_target_properties(pe_bench PROPERTIES BUILD_RPATH "${MUJOCO_ROOT}")
+
 # --- unit tests (per BT node + safety filter) via doctest ---------------------
 FetchContent_Declare(doctest
   GIT_REPOSITORY https://github.com/doctest/doctest.git
@@ -77,7 +83,8 @@ FetchContent_Declare(doctest
   GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(doctest)
 enable_testing()
-add_executable(pe_tests tests/test_bt_nodes.cpp tests/test_safety.cpp tests/test_games.cpp)
+add_executable(pe_tests tests/test_bt_nodes.cpp tests/test_safety.cpp tests/test_games.cpp
+  tests/test_link.cpp)
 target_link_libraries(pe_tests PRIVATE pe_core doctest::doctest)
 # test_games loads the SHIPPED trees/*.xml, so a Groot2 hand-edit that breaks a
 # gate profile fails the tests instead of silently changing behaviour

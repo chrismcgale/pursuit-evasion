@@ -109,3 +109,19 @@ def test_safety_fence_keeps_authority_through_the_norm_clip():
     a, _ = filter_action(np.array([12.0, 0, 3]), np.zeros(3), np.array([1.0, 1, 1]),
                          5.25, 12.0, 0.5, 12.0, SafetyConfig())
     assert np.linalg.norm(a) <= 1 + 1e-12 and abs(a[0] + 1.0) < 1e-12
+
+
+def test_small_dot_is_sequential():
+    """numpy's 3-vector dot/norm must equal the C++ runtime's left-to-right sum.
+
+    OpenBLAS's AVX-512 kernel fuses multiply-adds and changes the last bit on a
+    third of 3-vector dots, which broke tag bt_safe parity on a Xeon host.
+    ``pursuit_evasion`` pins the kernel at import; this fails if the pin did not
+    take effect (e.g. numpy was imported first on an AVX-512 machine).
+    """
+    import math
+    rng = np.random.default_rng(0)
+    for _ in range(2000):
+        a, b = rng.normal(size=3) * 10, rng.normal(size=3) * 10
+        assert float(a @ b) == (a[0] * b[0] + a[1] * b[1]) + a[2] * b[2]
+        assert float(np.linalg.norm(a)) == math.sqrt((a[0] * a[0] + a[1] * a[1]) + a[2] * a[2])

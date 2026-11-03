@@ -25,11 +25,22 @@ uv run python -m pursuit_evasion.train.export_onnx models/pursuer.zip models/pur
 Games (`tag` | `assault` | `escort`). Most entry points take `--game`; the defence
 games use the `<game>_dagger` model stem, not `pursuer*`:
 ```bash
-uv run python -m pursuit_evasion.train.dagger --game assault --iters 6
+uv run python -m pursuit_evasion.train.dagger --game assault --iterations 9 --out models/sphere_law
+#   keeps <stem>_it<k>.zip + <stem>_lineage.json; --link vicon_lab trains under the link,
+#   --init <ckpt> fine-tunes, --stem names the output
+uv run python scripts/analysis/gate_vs_policy.py --game assault \
+    --lineage models/sphere_law/assault_dagger_lineage.json --episodes 200 --out results/gvp.json
 uv run python -m pursuit_evasion.train.export_onnx models/assault_dagger.zip models/assault_dagger.onnx
 uv run pe-games --games tag assault escort --episodes 200   # cross-game tournament, autofills the writeup
 uv run pe-viz --game escort --controller bt --out escort.mp4
 uv run python -m pursuit_evasion.env.dump_arenas --check    # cpp/assets/*.xml are GENERATED
+```
+
+Shield options: own-team separation is off by default; turn it on for any
+multi-airframe run (and match it on both sides of a parity check):
+```bash
+uv run pe-parity --game tag --controller bt_safe --separation 1.5
+(cd cpp && ./build/pe_run --parity --game tag --controller bt_safe --separation 1.5)
 ```
 
 Gate analysis — how every shipped profile was derived. Always ≥2 seed blocks; a
@@ -39,6 +50,14 @@ uv run pe-ablate --game assault --side pursuers --episodes 150 --blocks 2  # def
 uv run pe-ablate --game assault --side evaders                             # attacker profile
 uv run python -m pursuit_evasion.train.dagger --game assault --side evaders \
     --iterations 8 --episodes 100 --select-episodes 100                    # attacker policy
+```
+
+Robustness (writeup §8). Each axis is independent, so run them in parallel
+processes (~5 min per assault axis, ~30-60 min per tag axis, single-threaded):
+```bash
+uv run pe-robust --game assault --axis latency --scripted-safe --plot
+uv run python scripts/analysis/robust_report.py --game assault --axis latency presets
+uv run python scripts/analysis/robust_figures.py        # -> writeup/figures/
 ```
 
 Per-decision instrumentation — why the gate did what it did, not just whether it
@@ -57,6 +76,9 @@ ninja -C build
 ./build/pe_run --controller bt --side pursuers --onnx ../models/pursuer.onnx
 ./build/pe_run --game assault --controller bt_safe                # arena/tree/onnx all default per game
 ./build/pe_run --controller bt --groot                            # live tree view (Groot2 :1667)
+./build/pe_bench --game tag --aircraft 4 --onnx-evader /tmp/evader.onnx --csv /tmp/b.csv  # tick timing
+#   (export the evader first: python -m pursuit_evasion.train.export_onnx models/evader.zip /tmp/evader.onnx)
+./build/pe_bench --game assault --replicas 8                      # 16 aircraft of compute, scaling slope
 ```
 
 Cross-runtime validation — the CLAUDE.md invariant. Run after touching dynamics,
@@ -67,6 +89,11 @@ uv run pe-parity --game assault --controller bt_safe > /tmp/py.txt        # repo
 (cd cpp && ./build/pe_run --parity --game assault --controller bt_safe) > /tmp/cpp.txt
 uv run python scripts/check_parity.py /tmp/py.txt /tmp/cpp.txt
 
+# 1b. the same under a degraded link (Python writes the corruption tape)
+uv run pe-parity --game tag --controller bt_safe --link vicon_lab --tape /tmp/tape.txt
+(cd cpp && ./build/pe_run --parity --game tag --controller bt_safe --link vicon_lab --link-tape /tmp/tape.txt)
+bash scripts/ci_parity.sh        # every check CI should run, in one go
+
 # 2. aggregate parity per game — catches gate / ONNX / shield drift
 uv run python -m pursuit_evasion.eval.dump_starts                 # writes s_<game>.txt
 ./build/pe_run --game assault --controller bt_safe --starts-file /tmp/s_assault.txt
@@ -74,6 +101,12 @@ uv run python -m pursuit_evasion.eval.dump_starts                 # writes s_<ga
 Compare against the same cell from `pe-games` (or, for the policy arms, a Python
 run through `eval.parity.OnnxRLController` — SB3/torch differs from ORT at ~1e-6).
 All three games match *exactly*, including violation counts and RL ticks.
+Under a link, `python -m pursuit_evasion.eval.dump_starts --link vicon_lab`
+also writes `t_<game>_vicon_lab.txt` for `pe_run --link vicon_lab --link-tape`
+(episode e is tape stream e+1: `LinkedController` resets once in its
+constructor), and `scripts/link_aggregate_parity.py` does the whole
+comparison episode by episode. Without `--link-tape`, `pe_run --link` uses a
+native generator: same distributions, not paired with Python.
 
 ## Debug / common errors
 
@@ -84,6 +117,17 @@ All three games match *exactly*, including violation counts and RL ticks.
   expression multiplying by a reciprocal where numpy divides. Use
   `Vec3 operator/`. Find the tick with a temporary per-tick `%.17g` action dump
   on both sides (that is how the 2026-09-30 bug was found: tick 12, one ulp).
+
+- **Tag bt_safe parity fails on a new machine but scripted is exact** — check
+  for AVX-512 (`grep avx512f /proc/cpuinfo`). OpenBLAS's AVX-512 `ddot` fuses
+  multiply-adds, so numpy's 3-vector `a @ b` / `norm` differ from C++ in the
+  last bit. `pursuit_evasion/__init__.py` pins `OPENBLAS_CORETYPE=Haswell`, but
+  only if the package is imported before numpy; `test_small_dot_is_sequential`
+  catches the miss.
+- **`uv sync` fails fetching `torch+cpu`** in a sandbox that blocks
+  `download.pytorch.org`: `uv sync --no-install-package torch && uv pip install
+  torch==<ver>` (PyPI build; runs on CPU), then call `.venv/bin/...` or
+  `uv run --no-sync` so uv does not try to re-sync.
 
 - **ONNX export fails with `onnxscript`/dynamo trace error** — use the legacy
   exporter (`dynamo=False`) and compute the action head directly (already done in
@@ -130,6 +174,10 @@ XML + a gate tree.
 - `cpp/assets/*.xml` are committed but generated — run `dump_arenas --check` after
   any geometry change. `arena.xml` must stay byte-identical unless you mean to
   move the tuned tag baseline.
+- **The gate overrides the law in exactly the regime the law flags.** Any
+  improvement to `GuardDefenders`' fallback action is invisible to (and
+  undone by) the gated stack until the policy is retrained or the gate is
+  removed. Measure scripted alone and gated after any law change.
 - **The defender gate reads the law's own regime** (`GuardDefenders.plan()`
   fallback flags → `scripted_fallback`). Don't reintroduce a feature that
   *re-derives* "infeasible" from geometry — the 2026-09-30 proxy disagreed with
@@ -153,6 +201,84 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-11-03** **Defender law: `adaptive` fallback replaces `park`.** With
+  no intercept the law now pursues (static asset) or guards the asset's
+  predicted position (moving asset). Chosen on blocks 10000/110000, confirmed
+  on fresh 30000: scripted +0.040 assault / +0.180 escort. Both runtimes,
+  parity exact, pinned by `test_defender_fallback_rule_is_adaptive`. The
+  gate hands exactly these ticks to the policy, so the shipped escort gate
+  now loses 0.105 and no assault gate helps (writeup §7.4; REVIEW #19 for
+  the decision). `GuardDefenders(fallback="park")` reproduces older numbers.
+
+- **2026-11-03** **Timing evidence (ROADMAP #6, #18): compute is not the
+  constraint, jitter is.** `pe_bench` times scripted law, ONNX, features + BT
+  tick and shield per tick. 4 aircraft: 21 us p50 / 47 us p99 on an idle
+  cloud Xeon; ONNX and BT ~45% each, shield <1%; linear, ~10 us p99 per
+  aircraft to 16. Worst ticks 0.2-1.7 ms are preemption. `GatedController`
+  carries an optional `TimingSink` (null except in pe_bench).
+
+- **2026-11-03** **Robustness re-run on current semantics, written up
+  (writeup §8).** Every axis for assault and tag with a new `scripted +
+  shield` arm (`pe-robust --scripted-safe`). Recipe for hardware: scripted +
+  shield; the defender gate adds +0.04..+0.08 under the shield on a clean
+  volume and nothing past ~30 ms. The old "+0.16 on vicon_lab" is retracted.
+  Found and fixed on the way: the control-rate axis shortened missile burn
+  with the control period (dt=20 ms "1.00 for every arm" was fuel, not
+  control). Training under the link changes nothing. Figures live in
+  `writeup/figures/` because `results/` is ignored.
+
+- **2026-11-03** **The shield's escort cost is the speed cap.** Paired on two
+  seed blocks (n=400): shield -0.052 on the gated stack, speed cap alone
+  -0.040, fence alone -0.010. Left unchanged (a safety limit; REVIEW
+  headline section). REVIEW #17 corrected: the repo is public, MIT.
+
+- **2026-11-03** **Stage 2 design proposal, `docs/STAGE2.md`.** Keeps
+  `apply_dynamics` as the one transform site and keeps the controller
+  interface (desired acceleration direction); the command-to-FC-setpoint
+  mapping inside it is what becomes the CRSF encoder on hardware. Migration in
+  ten steps, each adding a parity line before the next; the free-joint state
+  layout change is isolated in its own step. Open for Chris: model A/B,
+  first- vs second-order attitude, airframe numbers, room/capture/speed, and
+  whether the defence games go to whoop scale.
+
+- **2026-11-03** **Gate value does not follow policy quality; two scripted
+  fallbacks are leaking.** `dagger.py` keeps every iteration
+  (`<stem>_it<k>.zip`, `<stem>_lineage.json`) and can train under the link
+  (`--link`, privileged truth labels) or fine-tune (`--init`). Defenders
+  retrained on the sphere law into `models/sphere_law/` (shipped models and CI
+  inputs untouched). On two held-out blocks the gate's gain stays flat as the
+  policy alone improves 0.005 -> 0.175 (assault). Escort's BC iteration 0 adds
+  +0.25 on both blocks. Scripted fills of the fallback regime show where the
+  gain comes from: pure pursuit matches every assault policy (+0.06), a gate
+  point on the convoy's predicted position gives escort +0.08-0.10. Writeup
+  §7.3. Shipping is Chris's call (REVIEW #19).
+
+- **2026-11-03** **The link layer runs in C++ too (REVIEW #11, #14).**
+  `pe/link.hpp` mirrors `env/link.py`; its random draws come from a tape that
+  Python writes, because every draw is a function of (seed, stream, tick)
+  only. That made a bit-exact port of numpy's generators unnecessary. 18/18
+  fixed-start combinations and episode-level aggregates exact. Gotcha found on
+  the way: a script that imports numpy before `pursuit_evasion` silently loses
+  the OpenBLAS pin and flipped 1/40 tag episodes; the package now warns.
+
+- **2026-11-03** **Own-team separation in the shield, default off.**
+  `SafetyConfig.separation_m` (both runtimes, `--separation` on `pe-parity` /
+  `pe_run`, parity exact on and off, CI covers tag 1.5 m and escort 5 m).
+  Brake-aware like the fence. Measured paired on held-out seeds: tag scripted
+  pursuers overlapped in 50% of episodes and separation *raises* their capture
+  +0.08 [+0.03, +0.13]; no cell loses significantly; defenders almost never
+  meet. Recommended as default with the next headline re-run (REVIEW #12).
+  Separation from opponents conflicts with capture and is Chris's call; the
+  options and stopping-distance numbers are in REVIEW #12.
+
+- **2026-11-03** **Parity is CPU-dependent through OpenBLAS; pinned.** On an
+  AVX-512 Xeon, tag bt_safe parity failed on 3/5 starts with no code change:
+  OpenBLAS's SkylakeX `ddot` changes the last bit of a third of 3-vector dots.
+  The package now sets `OPENBLAS_CORETYPE=Haswell` at import on AVX-512 hosts;
+  all six combinations exact again. Every Python result on such a host
+  (including robustness sweeps) was otherwise silently off the laptop/CI
+  semantics.
 
 - **2026-09-30** **Deep review → four semantic changes, all in both runtimes,
   all six parity combinations exact.** (Full detail: `docs/REVIEW.md` top.)
@@ -192,7 +318,8 @@ XML + a gate tree.
   fixed an `aggregate()` crash on defence-game wins with no capture step
   (timeout/spent wins, `eval/scenarios.py`, pinned in `test_robustness`); CI
   added (`.github/workflows/ci.yml` + `scripts/check_parity.py`) and, after
-  Chris's go, private repo `chrismcgale/pursuit-evasion` created — **CI green
+  Chris's go, repo `chrismcgale/pursuit-evasion` created (private then;
+  public, MIT, since 2026-11) — **CI green
   on the first real run** (needed `libzmq3-dev` for BT.CPP's Groot2
   publisher; ORT 1.29.0 release tarball + `-DORT_INCLUDE/-DORT_LIB` works;
   parity holds on GCC 13/foreign hardware). Local `origin` is SSH via
