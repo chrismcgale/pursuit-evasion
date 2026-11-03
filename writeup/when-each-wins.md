@@ -489,6 +489,85 @@ Three consequences:
   measure as a win. The method in §7 — ablate one predicate at a time — cannot
   tell those apart; changing the scripted law can.
 
+### 7.3 Gate value against policy quality
+
+The policy on the defender gate's RL branch was a DAgger clone of the
+point-solve law (§7.2). It was retrained against the sphere-solve law with
+every iteration kept (`train/dagger.py`, 9 iterations of 100 episodes,
+selection battery seeds 9000-9039), and each checkpoint was measured alone and
+behind the shipped gate on two held-out blocks of 200 episodes (A: seeds
+20000+, B: 110000+), paired against the scripted law. The prediction from
+ROADMAP #4 was that gated minus scripted would stay flat while the policy's
+own win rate rose (`scripts/analysis/gate_vs_policy.py`).
+
+`assault` (scripted 0.795 on A, 0.740 on B):
+
+| checkpoint | policy alone, A / B | gated - scripted, A | gated - scripted, B |
+|---|---|---|---|
+| it0 (BC) | 0.005 / 0.010 | +0.065 [+0.035, +0.100] | +0.035 [+0.010, +0.060] |
+| it2 | 0.055 / 0.045 | +0.045 [+0.010, +0.080] | +0.035 [+0.010, +0.065] |
+| it4 | 0.120 / 0.130 | +0.055 [+0.020, +0.095] | +0.055 [+0.025, +0.090] |
+| it6 | 0.115 / 0.140 | +0.025 [-0.005, +0.060] | +0.045 [+0.020, +0.075] |
+| it8 (best on selection) | 0.175 / 0.170 | +0.025 [-0.005, +0.055] | +0.040 [+0.015, +0.070] |
+| shipped (old-law clone) | 0.065 / 0.090 | +0.050 [+0.020, +0.085] | +0.075 [+0.040, +0.115] |
+
+`escort` (scripted 0.545 on both blocks):
+
+| checkpoint | policy alone, A / B | gated - scripted, A | gated - scripted, B |
+|---|---|---|---|
+| it0 (BC) | 0.120 / 0.105 | +0.245 [+0.175, +0.315] | +0.270 [+0.205, +0.335] |
+| it2 | 0.165 / 0.125 | +0.050 [-0.025, +0.130] | +0.015 [-0.050, +0.080] |
+| it5 | 0.400 / 0.320 | +0.085 [+0.025, +0.150] | +0.055 [+0.010, +0.100] |
+| it7 (best on selection) | 0.345 / 0.325 | +0.070 [+0.005, +0.140] | +0.025 [-0.020, +0.070] |
+| it8 | 0.280 / 0.315 | +0.070 [+0.010, +0.130] | +0.010 [-0.040, +0.060] |
+| shipped (old-law clone) | 0.290 / 0.280 | +0.075 [+0.015, +0.135] | +0.035 [-0.015, +0.085] |
+
+(Odd iterations omitted; the full tables are in the script's JSON output.)
+The least-squares slope of gated minus scripted on policy-alone win rate,
+across the nine iterations with an episode bootstrap, is -0.19 [-0.41, -0.01]
+(assault, A), +0.01 [-0.16, +0.20] (assault, B), -0.06 [-0.24, +0.11]
+(escort, A) and -0.17 [-0.38, +0.03] (escort, B).
+
+The first half of the prediction held: in neither game does the gate's gain
+rise with the policy's own quality. In `assault` the policy alone went from
+0.005 to 0.175 while the gain stayed between +0.025 and +0.075. The second
+half held for `assault` only. In `escort` one checkpoint stands far out: the
+iteration-0 behaviour clone, trained only on states the scripted law visited,
+adds +0.245 and +0.270 on the two blocks while flying alone at 0.12. Every
+later iteration adds +0.01 to +0.09.
+
+So the policy's win rate on its own is the wrong axis. What decides the gain
+is what the policy does inside the regime it is handed. To check that, the RL
+branch was replaced by simple scripted rules for the same regime
+(`scripts/analysis/fallback_probe.py`, block A unless noted):
+
+| what fills the law's fallback regime | `assault` | `escort` |
+|---|---|---|
+| nothing (scripted law parks on its gate point) | 0.795 | 0.545 |
+| hold still | -0.010 [-0.040, +0.020] | -0.210 [-0.275, -0.145] |
+| pure pursuit of the nearest attacker | +0.060 [+0.030, +0.095] | -0.215 [-0.285, -0.150] |
+| the law's gate point placed on the asset's predicted position | same as the law (static asset) | +0.095 [+0.025, +0.165]; B: +0.075 [+0.020, +0.130] |
+| best DAgger policy | +0.065 (it0) | +0.245 (it0) |
+
+In `assault`, one line of pure pursuit recovers everything any policy adds.
+The residual +0.05 after §7.2 is therefore a second fix the scripted law
+could make itself: when no intercept exists, chase rather than park. In
+`escort` the convoy moves, so chasing abandons it and parking guards a point
+the convoy has already left. Putting the gate point on the convoy's predicted
+position recovers +0.075 to +0.095. Over 60 episodes of block A, in
+the fallback ticks, the iteration-0 policy's command has mean cosine 0.77
+with the convoy's direction of travel (0.72 for the best-on-selection
+checkpoint) and 0.64 with the law's own fallback command (0.89). It appears to have
+learned the same correction, and more of it, from the expert's average
+behaviour. Later DAgger iterations relabel the learner's own states with the
+law's fallback action and train that behaviour back out.
+
+The lesson from §7.2 applies again. Before attributing a gate's gain to the
+learned branch, try simple scripted fills of the same regime. Two of the three
+gains measured here are rules the scripted law can adopt. The escort it0 gain is
+the only one no simple rule matched, and it is larger than anything else in
+the defence games.
+
 ### Cross-runtime validation of the new games
 
 Both defence games were re-validated under the CLAUDE.md invariant. On a shared
