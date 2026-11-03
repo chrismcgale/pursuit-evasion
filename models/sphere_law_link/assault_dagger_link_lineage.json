@@ -1,0 +1,56 @@
+{
+ "game": "assault",
+ "side": "pursuers",
+ "seed": 0,
+ "link": "vicon_lab",
+ "init": "/home/user/pursuit-evasion/models/sphere_law/assault_dagger.zip",
+ "episodes": 100,
+ "bc_epochs": 12,
+ "select_episodes": 40,
+ "select_seed0": 9000,
+ "iterations": [
+  {
+   "iter": 0,
+   "dataset": 5148,
+   "mse": 0.029029372985465356,
+   "select_win": 0.075,
+   "path": "assault_dagger_link_it0.zip"
+  },
+  {
+   "iter": 1,
+   "dataset": 10608,
+   "mse": 0.034176414930802486,
+   "select_win": 0.075,
+   "path": "assault_dagger_link_it1.zip"
+  },
+  {
+   "iter": 2,
+   "dataset": 16450,
+   "mse": 0.03758079824023696,
+   "select_win": 0.2,
+   "path": "assault_dagger_link_it2.zip"
+  },
+  {
+   "iter": 3,
+   "dataset": 21953,
+   "mse": 0.037332123687378566,
+   "select_win": 0.2,
+   "path": "assault_dagger_link_it3.zip"
+  },
+  {
+   "iter": 4,
+   "dataset": 27760,
+   "mse": 0.039073386225817186,
+   "select_win": 0.225,
+   "path": "assault_dagger_link_it4.zip"
+  },
+  {
+   "iter": 5,
+   "dataset": 33460,
+   "mse": 0.03846184676785848,
+   "select_win": 0.2,
+   "path": "assault_dagger_link_it5.zip"
+  }
+ ],
+ "best_iter": 4
+}
