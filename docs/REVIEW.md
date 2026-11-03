@@ -200,6 +200,13 @@ Core claims, each measured not assumed:
     navigation" — it is lead guidance + bearing split + terminal break (fixed
     in code; check any new prose).
 
+24. ~~Parity silently depends on the host CPU~~ **Fixed 2026-11-03**: numpy's
+    OpenBLAS uses an FMA `ddot` kernel on AVX-512 CPUs, so 3-vector dots differ
+    from the C++ runtime in the last bit (tag bt_safe parity failed 3/5 on a
+    Xeon). The package pins `OPENBLAS_CORETYPE=Haswell` at import on those
+    hosts; `test_small_dot_is_sequential` pins it. Runs on an AVX-512 host
+    before this fix are not on the laptop/CI semantics.
+
 **Architecture**
 11. **The link layer is Python-only.** The C++ runtime cannot run degraded
     evals. Parity is unaffected (PERFECT bypasses bit-identically) but the

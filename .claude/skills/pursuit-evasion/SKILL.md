@@ -85,6 +85,17 @@ All three games match *exactly*, including violation counts and RL ticks.
   `Vec3 operator/`. Find the tick with a temporary per-tick `%.17g` action dump
   on both sides (that is how the 2026-09-30 bug was found: tick 12, one ulp).
 
+- **Tag bt_safe parity fails on a new machine but scripted is exact** — check
+  for AVX-512 (`grep avx512f /proc/cpuinfo`). OpenBLAS's AVX-512 `ddot` fuses
+  multiply-adds, so numpy's 3-vector `a @ b` / `norm` differ from C++ in the
+  last bit. `pursuit_evasion/__init__.py` pins `OPENBLAS_CORETYPE=Haswell`, but
+  only if the package is imported before numpy; `test_small_dot_is_sequential`
+  catches the miss.
+- **`uv sync` fails fetching `torch+cpu`** in a sandbox that blocks
+  `download.pytorch.org`: `uv sync --no-install-package torch && uv pip install
+  torch==<ver>` (PyPI build; runs on CPU), then call `.venv/bin/...` or
+  `uv run --no-sync` so uv does not try to re-sync.
+
 - **ONNX export fails with `onnxscript`/dynamo trace error** — use the legacy
   exporter (`dynamo=False`) and compute the action head directly (already done in
   `export_onnx.py`). Don't route through the distribution object.
@@ -153,6 +164,14 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-11-03** **Parity is CPU-dependent through OpenBLAS; pinned.** On an
+  AVX-512 Xeon, tag bt_safe parity failed on 3/5 starts with no code change:
+  OpenBLAS's SkylakeX `ddot` changes the last bit of a third of 3-vector dots.
+  The package now sets `OPENBLAS_CORETYPE=Haswell` at import on AVX-512 hosts;
+  all six combinations exact again. Every Python result on such a host
+  (including robustness sweeps) was otherwise silently off the laptop/CI
+  semantics.
 
 - **2026-09-30** **Deep review → four semantic changes, all in both runtimes,
   all six parity combinations exact.** (Full detail: `docs/REVIEW.md` top.)
