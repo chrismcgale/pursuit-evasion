@@ -8,11 +8,9 @@ and what is broken.*
 
 ## Stage 0 — close out the analysis (short tasks, high value)
 
-1. **Writeup §robustness** — the biggest measured-but-unwritten result.
-   Fold in: preset ladder, latency cliff + `latency_budget`, shield inversion,
-   escalation anti-pattern, swap immunity, one-stale-frame, control-rate
-   artifact. Regenerate assault plots (`pe-robust --game assault --axis all
-   --episodes 150 --plot` re-reads nothing; or plot from existing JSONs).
+1. ~~Writeup §robustness~~ **Done 2026-11-03** (writeup §8): every axis
+   re-run on the current semantics with a `scripted + shield` arm, figures
+   committed, the old "+0.16 on vicon_lab" headline retracted.
 2. ~~Re-run the defender ablation at 150×2 seed blocks~~ **Done 2026-09-06**:
    +0.17 replicates (0.70/0.68 vs 0.54/0.43). REVIEW #1.
 3. ~~Fix the gate escalation anti-pattern~~ **Done 2026-09-06 — hypothesis
@@ -33,9 +31,10 @@ and what is broken.*
    **Next: fix both scripted fallbacks in both runtimes, then retrain**
    (REVIEW #19 option d).
 5. ~~Assault `control_rate` axis~~ **Done 2026-09-06** (REVIEW #5): gate edge
-   holds at every period; dt=20 ms saturates every arm to 1.00. Still open
-   from this item: whether tag's published baseline should be restated at a
-   defensible control rate.
+   holds at every period; dt=20 ms saturates every arm to 1.00 — **a
+   missile-burn artefact, fixed 2026-11-03** (REVIEW #5). Still open from this
+   item: whether tag's published baseline should be restated at a defensible
+   control rate (scripted 0.41 -> 0.89 from 160 to 20 ms, writeup §8.7).
 6. **C++ runtime timing evidence**: per-tick latency histogram for BT tick /
    ONNX inference / safety filter in `pe_run` (~1 h; the strongest artifact for
    a robotics reader, and it feeds the ground-station budget in Stage 3).
@@ -53,11 +52,12 @@ and what is broken.*
 10. ~~Mirror `link.py` in the C++ runtime~~ **Done 2026-11-03** via a
     Python-written corruption tape; exact for every preset x game x stack
     (REVIEW #11). Degraded evals now run on the production stack.
-11. **Train under the link**: retrain/fine-tune the DAgger policies with
-    `vicon_lab` corruption active (domain randomisation). Open question with
-    real stakes: does the learned side close the robustness gap when it is
-    allowed to *experience* the link in training? If yes, the shield story
-    changes again.
+11. ~~Train under the link~~ **Done 2026-11-03, answer no** (writeup §8.8):
+    the sphere-law defenders fine-tuned under `vicon_lab` (`dagger.py
+    --link`, truth-labelled expert) are within +/-0.03 of their parents at
+    every latency and preset, alone and gated. A DAgger student of a teacher
+    that fails under latency cannot learn past it; a latency-aware teacher or
+    an objective-trained policy would be the next test.
 
 ## Stage 2 — 6-DOF underactuated dynamics (the big rebuild)
 
@@ -108,10 +108,11 @@ Chris's decisions (STAGE2 §6).*
 
 ## Standing questions
 
-- **Revised 2026-09-30 (review):** with the sphere-solving defender law the
-  gate's edge is +0.03 at perfect link and zero from 20 ms on (assault, n=150);
-  the hardware recipe is **scripted + shield** regardless of volume quality. The
-  question below is answered for the OLD law only.
+- **Revised 2026-11-03 (full re-run, writeup §8):** the hardware recipe is
+  **scripted + shield**. Under the shield the defender gate adds +0.04..+0.08
+  on a clean volume and under noise/occlusion and nothing past ~30 ms of state
+  latency, so "gate + shield on a clean volume" is a small refinement, not a
+  different recipe. The question below is answered for the OLD law only.
 - ~~Does the escalation fix (task 3) restore the gate at realistic latency?~~
   **Answered 2026-09-06: no — it destroys the gate at low latency and restores
   nothing.** Refined conclusion: the gate earns its +0.23 below ~30 ms of
