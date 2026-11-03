@@ -71,6 +71,11 @@ add_executable(pe_run src/runner.cpp)
 target_link_libraries(pe_run PRIVATE pe_core)
 set_target_properties(pe_run PROPERTIES BUILD_RPATH "${MUJOCO_ROOT}")
 
+# --- per-tick timing breakdown of the control stack (ROADMAP #6) ---------------
+add_executable(pe_bench src/bench.cpp)
+target_link_libraries(pe_bench PRIVATE pe_core)
+set_target_properties(pe_bench PROPERTIES BUILD_RPATH "${MUJOCO_ROOT}")
+
 # --- unit tests (per BT node + safety filter) via doctest ---------------------
 FetchContent_Declare(doctest
   GIT_REPOSITORY https://github.com/doctest/doctest.git
