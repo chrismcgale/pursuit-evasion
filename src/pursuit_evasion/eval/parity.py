@@ -73,6 +73,14 @@ _ESCORT = [
     {"pursuer0": (-24, 0, 7), "pursuer1": (-38, 2, 3), "evader0": (22, -22, 9), "evader1": (31, 8, 11)},
     {"pursuer0": (-30, 8, 4), "pursuer1": (-27, -7, 6), "evader0": (10, 28, 13), "evader1": (26, -18, 5)},
 ]
+# DIAGNOSTIC ONLY (do not merge): per-tick dump target, None when off.
+_DIAG = None
+
+
+def _row(tag, xs):
+    return tag + "".join(" %.17g" % float(x) for x in xs) + "\n"
+
+
 PARITY_STARTS = {"tag": _TAG, "assault": _ASSAULT, "escort": _ESCORT}
 
 # The policy each game's shipped gate routes to — mirrors runner.cpp:default_onnx
@@ -101,6 +109,9 @@ class OnnxRLController(BaseController):
         from ..env.observations import build_team_obs
         obs = build_team_obs(view).astype(np.float32)[None, :]
         a = self.sess.run(["action"], {"obs": obs})[0][0]
+        if _DIAG is not None:
+            _DIAG.write(_row("obs", obs[0]))
+            _DIAG.write(_row("pol", a))
         return np.clip(a.astype(np.float64), -1.0, 1.0)
 
 
@@ -152,14 +163,35 @@ def run_parity(game_key: str = "tag", controller: str = "scripted",
         evader.reset()
         checksum = 0.0
         rl_ticks = 0
+        global _DIAG
+        if game_key == "tag" and controller == "bt_safe" and k == 1:
+            import sys
+            _DIAG = open("/tmp/pe_diag_py.txt", "w")
+            info = open("/proc/cpuinfo").read().splitlines()
+            model = next((l for l in info if l.startswith("model name")), "?")
+            flags = next((l for l in info if l.startswith("flags")), "")
+            import numpy
+            print(f"[py-diag] {model} | avx512f={int(' avx512f' in flags)} "
+                  f"fma={int(' fma' in flags)} numpy={numpy.__version__}", file=sys.stderr)
+            numpy.show_runtime()
+        tick = 0
         while True:
-            r = core.step(pursuer.act(pv), evader.act(ev))
+            if _DIAG is not None:
+                _DIAG.write(f"tick {tick}\n")
+                tick += 1
+            pa = pursuer.act(pv)
+            if _DIAG is not None:
+                _DIAG.write(_row("act", np.asarray(pa).ravel()))
+            r = core.step(pa, evader.act(ev))
             if gate is not None:
                 rl_ticks = gate.mode_counts["rl"]
             pv, ev = r.pursuer_view, r.evader_view
             checksum += r.info["min_dist"]
             if r.terminated or r.truncated:
                 break
+        if _DIAG is not None:
+            _DIAG.close()
+            _DIAG = None
         f = getattr(pursuer, "filter", None)
         geo, spd = (f.n_geofence, f.n_speed) if f is not None else (0, 0)
         sep = f.n_separation if f is not None else 0

@@ -198,12 +198,35 @@ int run_parity(Sim& sim, const std::string& game, const std::string& controller,
     E->reset();
     double checksum = 0.0;
     StepInfo info;
+    // DIAGNOSTIC ONLY: dump every tick of tag bt_safe cfg 1
+    const bool diag = game == "tag" && controller == "bt_safe" && k == 1;
+    if (diag) {
+      g_pe_diag = std::fopen("/tmp/pe_diag_cpp.txt", "w");
+      std::ifstream ci("/proc/cpuinfo");
+      std::string ln, model, flags;
+      while (std::getline(ci, ln)) {
+        if (model.empty() && ln.rfind("model name", 0) == 0) model = ln;
+        if (flags.empty() && ln.rfind("flags", 0) == 0) flags = ln;
+      }
+      std::fprintf(stderr, "[cpp-diag] %s | avx512f=%d fma=%d\n", model.c_str(),
+                   (int)(flags.find(" avx512f") != std::string::npos),
+                   (int)(flags.find(" fma") != std::string::npos));
+    }
+    int tick = 0;
     while (true) {
       TeamView pv = sim.view(Team::Pursuers), ev = sim.view(Team::Evaders);
-      info = sim.step(P->act(pv), E->act(ev));
+      if (g_pe_diag) std::fprintf(g_pe_diag, "tick %d\n", tick++);
+      std::vector<double> pa = P->act(pv);
+      if (g_pe_diag) {
+        std::fprintf(g_pe_diag, "act");
+        for (double x : pa) std::fprintf(g_pe_diag, " %.17g", x);
+        std::fprintf(g_pe_diag, "\n");
+      }
+      info = sim.step(pa, E->act(ev));
       checksum += info.min_dist;
       if (info.terminated || info.truncated) break;
     }
+    if (g_pe_diag) { std::fclose(g_pe_diag); g_pe_diag = nullptr; }
     const int rl_ticks = gate ? gate->mode_counts["rl"] : 0;
     const int geo = shield ? shield->filter.n_geofence : 0;
     const int spd = shield ? shield->filter.n_speed : 0;

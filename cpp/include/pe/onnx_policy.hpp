@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,6 +13,9 @@ class Session;
 }  // namespace Ort
 
 namespace pe {
+
+// DIAGNOSTIC ONLY (do not merge): per-tick dump target, null when off.
+extern std::FILE* g_pe_diag;
 
 // Loads a policy exported by train/export_onnx.py and runs it through ONNX
 // Runtime. Input "obs" (float32, [1, obs_dim]) -> output "action" ([1, act_dim]).

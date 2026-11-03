@@ -9,6 +9,8 @@
 
 namespace pe {
 
+std::FILE* g_pe_diag = nullptr;
+
 OnnxPolicy::OnnxPolicy(const std::string& model_path) {
   env_ = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "pe_policy");
   Ort::SessionOptions opts;
@@ -43,6 +45,13 @@ std::vector<double> OnnxPolicy::action(const std::vector<float>& obs) {
   auto outputs = session_->Run(Ort::RunOptions{nullptr}, in_names, &in, 1,
                                out_names, 1);
   const float* a = outputs[0].GetTensorData<float>();
+  if (g_pe_diag) {
+    std::fprintf(g_pe_diag, "obs");
+    for (float x : obs) std::fprintf(g_pe_diag, " %.17g", (double)x);
+    std::fprintf(g_pe_diag, "\npol");
+    for (int i = 0; i < act_dim_; ++i) std::fprintf(g_pe_diag, " %.17g", (double)a[i]);
+    std::fprintf(g_pe_diag, "\n");
+  }
   std::vector<double> action(act_dim_);
   for (int i = 0; i < act_dim_; ++i) action[i] = clamp((double)a[i], -1.0, 1.0);
   return action;

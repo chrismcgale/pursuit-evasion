@@ -34,6 +34,38 @@ def parse(path: str) -> dict[int, tuple]:
     return out
 
 
+def _diag_diff() -> None:
+    """DIAGNOSTIC ONLY: first differing row of the per-tick dumps, if present."""
+    import os
+    a, b = "/tmp/pe_diag_py.txt", "/tmp/pe_diag_cpp.txt"
+    if not (os.path.exists(a) and os.path.exists(b)):
+        return
+    pa, pb = open(a).read().splitlines(), open(b).read().splitlines()
+    print(f"[diag] rows py={len(pa)} cpp={len(pb)}")
+    for i, (x, y) in enumerate(zip(pa, pb)):
+        if x != y:
+            lo = max(0, i - 8)
+            print("[diag] context (both equal):")
+            for r in pa[lo:i]:
+                print("   ", r)
+            print("[diag] FIRST DIFF at row", i)
+            print("  py :", x)
+            print("  cpp:", y)
+            xs, ys = x.split()[1:], y.split()[1:]
+            for j, (u, v) in enumerate(zip(xs, ys)):
+                if u != v:
+                    print(f"  [{j}] py={u} cpp={v} diff={float(u) - float(v):.3e}")
+            print("[diag] next rows:")
+            for r1, r2 in list(zip(pa, pb))[i + 1:i + 6]:
+                print("  py :", r1)
+                print("  cpp:", r2)
+            break
+    else:
+        print("[diag] dumps identical over the common prefix")
+    os.remove(a)
+    os.remove(b)
+
+
 def main() -> int:
     py, cpp = parse(sys.argv[1]), parse(sys.argv[2])
     if not py or set(py) != set(cpp):
@@ -46,6 +78,7 @@ def main() -> int:
             print(f"parity FAIL cfg={cfg}: py (win,steps,rl,geo,spd,sep)={pe} checksum={pc:.6f} "
                   f"vs cpp {ce} checksum={cc:.6f}")
             ok = False
+    _diag_diff()
     if ok:
         print(f"parity OK: {len(py)} configs, max |Δchecksum| = "
               f"{max(abs(py[c][1] - cpp[c][1]) for c in py):.2e}")
