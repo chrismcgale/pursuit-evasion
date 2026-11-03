@@ -1,0 +1,56 @@
+{
+ "game": "escort",
+ "side": "pursuers",
+ "seed": 0,
+ "link": "vicon_lab",
+ "init": "/home/user/pursuit-evasion/models/sphere_law/escort_dagger.zip",
+ "episodes": 100,
+ "bc_epochs": 12,
+ "select_episodes": 40,
+ "select_seed0": 9000,
+ "iterations": [
+  {
+   "iter": 0,
+   "dataset": 6261,
+   "mse": 0.03940023680932604,
+   "select_win": 0.275,
+   "path": "escort_dagger_link_it0.zip"
+  },
+  {
+   "iter": 1,
+   "dataset": 12064,
+   "mse": 0.04532248254084777,
+   "select_win": 0.2,
+   "path": "escort_dagger_link_it1.zip"
+  },
+  {
+   "iter": 2,
+   "dataset": 18004,
+   "mse": 0.04576752256453898,
+   "select_win": 0.3,
+   "path": "escort_dagger_link_it2.zip"
+  },
+  {
+   "iter": 3,
+   "dataset": 23739,
+   "mse": 0.04514648132627226,
+   "select_win": 0.375,
+   "path": "escort_dagger_link_it3.zip"
+  },
+  {
+   "iter": 4,
+   "dataset": 29075,
+   "mse": 0.04291493400572603,
+   "select_win": 0.325,
+   "path": "escort_dagger_link_it4.zip"
+  },
+  {
+   "iter": 5,
+   "dataset": 34861,
+   "mse": 0.04225216297959232,
+   "select_win": 0.325,
+   "path": "escort_dagger_link_it5.zip"
+  }
+ ],
+ "best_iter": 3
+}
