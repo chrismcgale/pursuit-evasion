@@ -51,6 +51,8 @@ struct SafetyConfig {
   double brake_horizon_s = 0.15;
   // Shrink unfenced axes, never the inward correction, when |cmd| > 1.
   bool keep_fence_authority = true;
+  // Minimum centre-to-centre distance between live teammates (m). 0 = off.
+  double separation_m = 0.0;
 };
 
 // Mirrors src/pursuit_evasion/bt/gating.py:GateThresholds

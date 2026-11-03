@@ -19,7 +19,7 @@ import re
 import sys
 
 LINE = re.compile(r"cfg=(\d+) win=(\d+) steps=(\d+) checksum=([-\d.]+)"
-                  r"(?: rl=(\d+) viol=(\d+)/(\d+))?")
+                  r"(?: rl=(\d+) viol=(\d+)/(\d+)(?:/(\d+))?)?")
 CHECKSUM_TOL = 1e-4
 
 
@@ -29,7 +29,7 @@ def parse(path: str) -> dict[int, tuple]:
         for m in (LINE.search(line) for line in fh):
             if m:
                 g = m.groups()
-                exact = tuple(int(x or 0) for x in (g[1], g[2], g[4], g[5], g[6]))
+                exact = tuple(int(x or 0) for x in (g[1], g[2], g[4], g[5], g[6], g[7]))
                 out[int(g[0])] = (exact, float(g[3]))
     return out
 
@@ -43,7 +43,7 @@ def main() -> int:
     for cfg in sorted(py):
         (pe, pc), (ce, cc) = py[cfg], cpp[cfg]
         if pe != ce or abs(pc - cc) > CHECKSUM_TOL:
-            print(f"parity FAIL cfg={cfg}: py (win,steps,rl,geo,spd)={pe} checksum={pc:.6f} "
+            print(f"parity FAIL cfg={cfg}: py (win,steps,rl,geo,spd,sep)={pe} checksum={pc:.6f} "
                   f"vs cpp {ce} checksum={cc:.6f}")
             ok = False
     if ok:
