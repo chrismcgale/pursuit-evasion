@@ -311,3 +311,34 @@ TEST_CASE("make_game rejects an unknown key rather than silently defaulting") {
   CHECK(arena_asset_name("tag") == "arena.xml");
   CHECK(arena_asset_name("assault") == "arena_assault.xml");
 }
+
+// Mirrors test_games.py::test_defender_fallback_rule_is_adaptive (writeup §7.4):
+// with no intercept, pursue if the asset is static, guard its predicted position
+// if it moves; "park" is the legacy rule.
+TEST_CASE("defender fallback rule is adaptive") {
+  GuardDefenders law;
+  CHECK(law.fallback_rule == "adaptive");
+  TeamView v = defender_view(11.0);   // receding: no intercept
+  std::vector<char> fb;
+  auto a = law.plan(v, fb);
+  REQUIRE(fb[0]);
+  Vec3 p = unit(v.opp_pos[0] - v.self_pos[0]);
+  CHECK(a[0] == p.x);
+  CHECK(a[1] == p.y);
+  CHECK(a[2] == p.z);
+
+  v.asset_vel = {0, 4, 0};
+  a = law.plan(v, fb);
+  const double t = std::min(time_to_asset(v.opp_pos[0], v.opp_vel[0], v.asset_pos, v.opp_vmax), 10.0);
+  Vec3 g = unit(law.gate_point(v.opp_pos[0], v.asset_pos + v.asset_vel * t) - v.self_pos[0]);
+  CHECK(a[0] == g.x);
+  CHECK(a[1] == g.y);
+  CHECK(a[2] == g.z);
+
+  GuardDefenders park;
+  park.fallback_rule = "park";
+  a = park.plan(v, fb);
+  Vec3 g0 = unit(park.gate_point(v.opp_pos[0], v.asset_pos) - v.self_pos[0]);
+  CHECK(a[0] == g0.x);
+  CHECK(a[1] == g0.y);
+}

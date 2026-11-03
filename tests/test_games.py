@@ -563,3 +563,30 @@ def test_trace_and_explorer_round_trip(tmp_path):
     # the inlined payload must parse back out
     blob = html.split("const TRACES = ", 1)[1].split(";\nconst C", 1)[0]
     assert json.loads(blob)[0]["game"] == "assault"
+
+
+def test_defender_fallback_rule_is_adaptive():
+    """Pins the 2026-11-03 fallback change (writeup §7.4). With no intercept the
+    law pursues if the asset is static and guards the asset's PREDICTED position
+    if it moves; the legacy 'park' rule guarded its current position. Mirrored
+    in cpp/tests/test_games.cpp."""
+    from dataclasses import replace
+    from pursuit_evasion.scripted.base import unit
+    from pursuit_evasion.scripted.defenders import GuardDefenders, time_to_asset
+
+    v = _defender_view(11.0)                      # receding: no intercept
+    law = GuardDefenders()
+    assert law.fallback == "adaptive"
+    a, fb = law.plan(v)
+    assert fb[0]
+    np.testing.assert_array_equal(a[:3], unit(v.opp_pos[0] - v.self_pos[0]))  # pursue
+
+    moving = replace(v, asset_vel=np.array([0.0, 4.0, 0.0]))
+    a, _ = law.plan(moving)
+    t = min(time_to_asset(v.opp_pos[0], v.opp_vel[0], v.asset_pos, v.opp_vmax), 10.0)
+    gate = law._gate_point(v.opp_pos[0], v.asset_pos + moving.asset_vel * t)
+    np.testing.assert_array_equal(a[:3], unit(gate - v.self_pos[0]))           # lead gate
+
+    park, _ = GuardDefenders(fallback="park").plan(moving)
+    gate0 = law._gate_point(v.opp_pos[0], v.asset_pos)
+    np.testing.assert_array_equal(park[:3], unit(gate0 - v.self_pos[0]))       # legacy
