@@ -783,6 +783,28 @@ of thrust per minute, since an `assault` episode lasts seconds).
 The gate's residual edge therefore survives every non-latency degradation
 measured here, and disappears on the latency axes alone.
 
+`tag`, worst level of each axis:
+
+| axis (worst level) | scripted | scripted + shield | shield on scripted | gate + shield - scripted + shield |
+|---|---|---|---|---|
+| none | 0.560 | 0.527 | -0.033 [-0.120, +0.053] | -0.173 [-0.287, -0.060]* |
+| identity swap, 0.03 | 0.513 | 0.493 | -0.020 [-0.127, +0.087] | -0.200 [-0.307, -0.093]* |
+| marker occlusion, 0.20 | 0.207 | 0.340 | +0.133 [+0.040, +0.227]* | -0.253 [-0.340, -0.173]* |
+| velocity noise, 0.25 m/s | 0.487 | 0.547 | +0.060 [-0.040, +0.160] | -0.180 [-0.287, -0.080]* |
+| position noise, 0.40 m | 0.233 | 0.273 | +0.040 [-0.047, +0.127] | +0.107 [0.000, +0.207] |
+| motor time constant, 80 ms | 0.200 | 0.287 | +0.087 [+0.013, +0.160]* | -0.093 [-0.187, 0.000] |
+| uplink packet loss, 0.30 | 0.293 | 0.460 | +0.167 [+0.073, +0.267]* | -0.240 [-0.340, -0.140]* |
+| battery sag, 0.6 per minute | 0.380 | 0.453 | +0.073 [-0.007, +0.153] | -0.353 [-0.447, -0.260]* |
+| state latency, 80 ms | 0.053 | 0.127 | +0.073 [+0.013, +0.133]* | -0.047 [-0.120, +0.027] |
+
+Swaps barely touch tag either (0.560 to 0.513 at the highest rate): the law
+re-assigns targets every tick, so a mislabelled pair costs at most a short
+detour. Tag is far more sensitive than assault to occlusion and packet loss
+(0.56 to 0.21 and 0.29), and on exactly those axes the shield is worth +0.13
+and +0.17 on the scripted law. Under the shield the tag gate is still
+negative on every axis but one (position noise at 0.40 m, +0.107, interval
+touching zero).
+
 ### 8.6 One stale command frame
 
 Uplink latency is applied as whole frames (a radio delivers frames, not
@@ -795,7 +817,9 @@ without internal state, acting one tick late on fresh state and acting now on
 one-tick-old state send the same command at the same time. Under the old law
 the same step was 0.71 to 0.07. At this control period, a radio that drops
 one frame of timeliness costs more than half the win rate, which argues for a
-faster control loop more than for any controller change.
+faster control loop more than for any controller change. Tag's 100 ms period
+rounds 10-40 ms to zero frames and 80 ms to one, and that one frame takes
+tag scripted from 0.560 to 0.020 (0.113 with the shield).
 
 ### 8.7 The control period, and a missile-fuel artefact
 
