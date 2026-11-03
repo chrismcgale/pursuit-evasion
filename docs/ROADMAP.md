@@ -40,8 +40,9 @@ and what is broken.*
    ONNX inference / safety filter in `pe_run` (~1 h; the strongest artifact for
    a robotics reader, and it feeds the ground-station budget in Stage 3).
 7. Groot2: screenshot of the shipped trees + live-monitoring hookup.
-8. Repo hygiene: ~~CI~~ ~~remote~~ (done 2026-09-06: private
-   `chrismcgale/pursuit-evasion`, CI green including cross-runtime parity).
+8. Repo hygiene: ~~CI~~ ~~remote~~ (done 2026-09-06:
+   `chrismcgale/pursuit-evasion`, public and MIT-licensed since 2026-11, CI
+   green including cross-runtime parity).
    ~~Parity for all games + gate~~, ~~models committed~~ (done 2026-09-30).
    Remaining: robustness figures in the writeup, explorer GIF in the README.
 
