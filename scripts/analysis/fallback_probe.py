@@ -1,9 +1,10 @@
 """What should fill the defender law's fallback regime?
 
-The gate hands the regime where GuardDefenders.plan() has no intercept (and
-parks on a gate point) to whatever sits on the RL branch. This puts simple
-scripted alternatives on that branch and compares them, paired, with the
-policies: if a one-line pursuit rule matches the best policy, the gain is a
+The old defender gate handed the regime where GuardDefenders.plan() has no
+intercept to whatever sat on the RL branch; ``FallbackFill`` rebuilds that
+handover here (the shipped gate hands nothing over since 2026-11-03). This
+puts simple scripted alternatives in that regime and compares them, paired,
+with the policies: if a one-line rule matches the best policy, the gain is a
 fix the scripted law could make itself (the lesson of writeup §7.2).
 
     .venv/bin/python scripts/analysis/fallback_probe.py --game escort --seed 20000
@@ -12,12 +13,13 @@ import argparse
 import json
 from pathlib import Path
 
+import sys
+sys.path.insert(0, __import__('os').path.dirname(__file__))
 import pursuit_evasion  # noqa: F401  (OpenBLAS pin before numpy)
 import numpy as np
 from stable_baselines3 import PPO
 
-from pursuit_evasion.bt.gating import GatedController
-from pursuit_evasion.env.core import TEAM_PURSUERS
+from fallback_fill import FallbackFill  # noqa: E402  (the pre-2026-11-03 defender handover)
 from pursuit_evasion.eval.robustness import paired_delta, wilson
 from pursuit_evasion.eval.scenarios import run_batch
 from pursuit_evasion.scripted import default_controllers
@@ -110,7 +112,7 @@ def main():
     print(f"scripted {np.mean(base):.3f}", flush=True)
     for name, fill in fills.items():
         law, opp = default_controllers(a.game)
-        gate = GatedController(TEAM_PURSUERS, law, fill, game=a.game)
+        gate = FallbackFill(law, fill)
         w = [bool(r.win) for r in run_batch(gate, opp, a.episodes, a.seed, game=a.game).records]
         d = paired_delta(w, base)
         res["fills"][name] = {"win": float(np.mean(w)), "ci": wilson(sum(w), len(w)), "vs_scripted": d}
