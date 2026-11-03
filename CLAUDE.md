@@ -107,6 +107,9 @@ The two are kept semantically identical and cross-checked:
   numpy computes `v / n`, one ulp apart. **Write division wherever numpy
   divides** (`Vec3 operator/`); a reciprocal-multiply will pass the scripted
   tag check and still diverge a gated 500-step chase.
+  For the same reason the C++ build passes `-ffp-contract=off`: numpy never
+  fuses `a*b + c`, and a compiler that targets FMA by default (GCC 15 on the
+  2026-11 CI image) will. Keep it on any new C++ target.
 
 **Invariant:** any change to dynamics, the observation layout, the scripted
 controllers, the gate predicates, or the safety filter MUST be applied to *both*
