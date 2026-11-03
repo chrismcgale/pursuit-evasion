@@ -287,6 +287,41 @@ same `libmujoco`. Parity is enforced two ways:
   Lesson, in the same vein as §4.1: a plausible physical story ("chaos") for a
   residual is not evidence; bisect it to the first differing number.
 
+### 5.1 What one control tick costs
+
+`pe_bench` (C++) times each stage the production stack runs per control tick:
+the scripted law and ONNX inference once per team (the policy is team-joint),
+feature extraction plus the BehaviorTree.CPP tick once per aircraft, and the
+safety filter. Measured on the idle cloud machine this work ran on (Xeon,
+2.3 GHz, one thread). That is not the ground station, so the absolute
+numbers are indicative only; the breakdown and the scaling are the result. A
+first run with three other jobs on the other cores gave the same medians and
+p99s within 10%. All times in microseconds.
+
+| configuration | ticks | whole tick p50 | p99 | p99.9 | max | p99 per aircraft |
+|---|---|---|---|---|---|---|
+| tag, 2 aircraft (one gated + shielded team) | 24,550 | 9.5 | 29.2 | 76 | 368 | 14.6 |
+| tag, 4 aircraft (both teams gated + shielded) | 9,708 | 20.7 | 47.1 | 83 | 409 | 11.8 |
+| assault, 2 aircraft | 4,167 | 9.9 | 28.3 | 74 | 190 | 14.2 |
+| assault, 4 aircraft (2 stack replicas) | 2,507 | 19.2 | 46.7 | 114 | 295 | 11.7 |
+| assault, 8 aircraft (4 replicas) | 2,507 | 36.5 | 73.8 | 403 | 1,714 | 9.2 |
+| assault, 16 aircraft (8 replicas) | 2,507 | 80.8 | 177.8 | 275 | 813 | 11.1 |
+
+Per team, in the 2-aircraft tag run: ONNX inference 4.8 us mean (44% of the
+stack), features + BT tick 2.4 us per aircraft (44% for two), scripted law
+0.3 us, safety filter 0.1 us. The physics step, for reference, is about
+50 us, several times the whole control stack. Cost grows linearly, about
+10-15 us of p99 per aircraft, so one process holding 4 aircraft at 100 Hz uses
+about 0.5% of the 10 ms period at p99. The constraint on the ground station
+is therefore not compute but jitter: the worst ticks (0.2-1.7 ms) are
+scheduler preemption, one to two orders of magnitude above the median, and on
+hardware they need a real-time thread and a check on deadline misses rather
+than a faster CPU. One saving is available if it is ever needed: the gate
+runs the policy every tick even when no aircraft is handed over (it hands
+over 11.5% of agent-ticks in `assault`), and could evaluate it lazily.
+
+![tick-time histogram](figures/timing_tag4.png)
+
 ## 6. Different games, different winners
 
 Tag has one weakness as evidence: it is a single problem, so "the gate trails

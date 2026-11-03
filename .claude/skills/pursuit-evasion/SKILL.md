@@ -76,6 +76,9 @@ ninja -C build
 ./build/pe_run --controller bt --side pursuers --onnx ../models/pursuer.onnx
 ./build/pe_run --game assault --controller bt_safe                # arena/tree/onnx all default per game
 ./build/pe_run --controller bt --groot                            # live tree view (Groot2 :1667)
+./build/pe_bench --game tag --aircraft 4 --onnx-evader /tmp/evader.onnx --csv /tmp/b.csv  # tick timing
+#   (export the evader first: python -m pursuit_evasion.train.export_onnx models/evader.zip /tmp/evader.onnx)
+./build/pe_bench --game assault --replicas 8                      # 16 aircraft of compute, scaling slope
 ```
 
 Cross-runtime validation — the CLAUDE.md invariant. Run after touching dynamics,
@@ -194,6 +197,13 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-11-03** **Timing evidence (ROADMAP #6, #18): compute is not the
+  constraint, jitter is.** `pe_bench` times scripted law, ONNX, features + BT
+  tick and shield per tick. 4 aircraft: 21 us p50 / 47 us p99 on an idle
+  cloud Xeon; ONNX and BT ~45% each, shield <1%; linear, ~10 us p99 per
+  aircraft to 16. Worst ticks 0.2-1.7 ms are preemption. `GatedController`
+  carries an optional `TimingSink` (null except in pe_bench).
 
 - **2026-11-03** **Robustness re-run on current semantics, written up
   (writeup §8).** Every axis for assault and tag with a new `scripted +
