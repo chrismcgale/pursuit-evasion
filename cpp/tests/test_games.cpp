@@ -131,10 +131,13 @@ TEST_CASE("drones never go spent — they have no finite burn") {
 
 // ------------------------------------------------------------------ gate nodes
 
-TEST_CASE("ScriptedFallback hands over exactly on the law's own fallback flag") {
+// Mirrors test_games.py::test_defender_gate_hands_over_nothing (writeup §7.4):
+// with the law's adaptive fallback, no handover helps, so the branch that
+// detects the law's fallback now routes it to scripted.
+TEST_CASE("defender gate hands over nothing (ScriptedFallback routes to scripted)") {
   auto f = obj_base();
   f.scripted_fallback = true;
-  CHECK(route("gate_defenders.xml", f) == "rl");
+  CHECK(route("gate_defenders.xml", f) == "scripted");
   f.scripted_fallback = false;
   CHECK(route("gate_defenders.xml", f) == "scripted");
   // the retired proxy no longer routes anything on its own
@@ -150,14 +153,14 @@ TEST_CASE("sphere intercept: radius 0 is the point solve; >0 only ever helps") {
   CHECK(norm(Vec3{15, 2, 0} + Vec3{-11, 0, 0} * (*t)) <= 7.5 * (*t) + 1.4 + 1e-9);
 }
 
-// Pins the negative result of the debounce experiment (Python mirror:
-// test_games.py::test_defender_handover_is_immediate): requiring the fallback
-// to persist k ticks before handover was a dose-response LOSS on the assault
-// latency axis (bt_gated 0.71/0.59/0.49 at perfect link for k=1/2/3, nothing
-// recovered under latency), because genuine fallback regimes are 20-30-tick
-// streaks that do not flicker — a debounce is pure delay against an 11 m/s
-// missile. The first fallback tick must hand over immediately. A missile
-// receding at 11 m/s from a 7.5 m/s defender is unreachable even to the sphere.
+// Python mirror: test_games.py::test_defender_gate_keeps_the_law_in_its_fallback.
+// History: this used to pin an immediate handover on the first fallback tick,
+// because requiring the fallback to persist k ticks was a dose-response LOSS on
+// the assault latency axis (bt_gated 0.71/0.59/0.49 at perfect link for
+// k=1/2/3, nothing recovered under latency). Since 2026-11-03 the defender gate
+// hands nothing over, so the gated stack must be the scripted law on every
+// tick. A missile receding at 11 m/s from a 7.5 m/s defender is unreachable
+// even to the sphere, so that view is a fallback tick.
 namespace {
 struct ConstCtl : Controller {
   double v;
@@ -185,7 +188,7 @@ TeamView defender_view(double missile_vel_x) {
 }
 }  // namespace
 
-TEST_CASE("defender handover is immediate on the first fallback tick") {
+TEST_CASE("defender gate keeps the law in its fallback") {
   GuardDefenders law;
   ConstCtl rl(-0.75);
   GatedController gc(Team::Pursuers, &law, &rl,
@@ -197,9 +200,9 @@ TEST_CASE("defender handover is immediate on the first fallback tick") {
   law.plan(inbound, fb);
   REQUIRE_FALSE(fb[0]);
 
-  CHECK(gc.act(inbound)[0] == law.act(inbound)[0]);  // intercept: scripted
-  CHECK(gc.act(receding)[0] == -0.75);               // first fallback tick: RL
-  CHECK(gc.mode_counts["rl"] == 1);
+  CHECK(gc.act(inbound)[0] == law.act(inbound)[0]);    // intercept: scripted
+  CHECK(gc.act(receding)[0] == law.act(receding)[0]);  // fallback: still scripted
+  CHECK(gc.mode_counts["rl"] == 0);
 }
 
 // This is the finding, pinned as a test: the tag instinct "close quarters is
