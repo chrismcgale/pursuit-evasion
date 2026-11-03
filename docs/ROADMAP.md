@@ -35,9 +35,10 @@ and what is broken.*
    missile-burn artefact, fixed 2026-11-03** (REVIEW #5). Still open from this
    item: whether tag's published baseline should be restated at a defensible
    control rate (scripted 0.41 -> 0.89 from 160 to 20 ms, writeup §8.7).
-6. **C++ runtime timing evidence**: per-tick latency histogram for BT tick /
-   ONNX inference / safety filter in `pe_run` (~1 h; the strongest artifact for
-   a robotics reader, and it feeds the ground-station budget in Stage 3).
+6. ~~C++ runtime timing evidence~~ **Done 2026-11-03** (`pe_bench`, writeup
+   §5.1): whole tick for 4 aircraft 21 us p50 / 47 us p99 on an idle cloud
+   machine; ONNX and BT tick ~45% each, shield <1%; linear at ~10 us p99 per
+   aircraft up to 16. Re-measure on the ground station itself.
 7. Groot2: screenshot of the shipped trees + live-monitoring hookup.
 8. Repo hygiene: ~~CI~~ ~~remote~~ (done 2026-09-06:
    `chrismcgale/pursuit-evasion`, public and MIT-licensed since 2026-11, CI
@@ -92,7 +93,11 @@ Chris's decisions (STAGE2 §6).*
 18. Ground station architecture: the C++ runtime is the intended brain —
     Vicon bridge in, per-aircraft BT+policy+shield tick, CRSF/ELRS out.
     The Stage-0 timing histogram says whether one process holds 4 aircraft
-    at 100+ Hz.
+    at 100+ Hz: **yes by compute** (~0.5% of a 10 ms period at p99 for 4
+    aircraft, writeup §5.1); the open risk is scheduling jitter (worst ticks
+    0.2-1.7 ms on the cloud machine), so plan a real-time thread and
+    deadline-miss accounting, and re-measure with the Stage 2 attitude model
+    in the loop.
 19. **Safety before first flight** (also a sim task now): ~~brake-aware
     geofence~~ (done 2026-09-30; re-derive `brake_horizon_s` = control period
     + v/2a for the whoop airframe), ~~own-team separation in the shield~~
