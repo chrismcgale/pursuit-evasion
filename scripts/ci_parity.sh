@@ -35,4 +35,14 @@ for spec in "tag 1.5" "escort 5"; do
   check "$1 bt_safe separation=$2" --game "$1" --controller bt_safe --separation "$2" \
     -- --game "$1" --controller bt_safe --separation "$2"
 done
+# Degraded link on the production stack: Python writes the corruption tape it
+# draws (env/link.py:write_tape), C++ replays it; every game x stack must
+# still match exactly.
+for game in tag assault escort; do
+  for ctrl in scripted bt_safe; do
+    check "$game $ctrl link=vicon_lab" --game "$game" --controller "$ctrl" \
+      --link vicon_lab --tape "$tmp/tape.txt" \
+      -- --game "$game" --controller "$ctrl" --link vicon_lab --link-tape "$tmp/tape.txt"
+  done
+done
 echo "all parity checks exact"
