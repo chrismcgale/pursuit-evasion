@@ -64,6 +64,16 @@ Post-review headline (`pe-games`, seeds 10000+, n=200): tag 0.46 / gated 0.19 /
 +shield 0.42; assault 0.77 / 0.80 / 0.81; escort 0.49 / 0.53 / **0.47** — note
 the shield now *costs* escort 0.06 (the fence change itself was measured
 neutral there, 0.460 → 0.465, so suspect the speed cap; unpaired, check it).
+**Checked 2026-11-03, paired** (`scripts/analysis/escort_shield_paired.py`,
+n=200 on seeds 10000+ and 20000+, pooled n=400): shield on the gated stack
+-0.052 [-0.085, -0.020]; speed cap alone -0.040 [-0.072, -0.007]; fence alone
+-0.010 [-0.022, 0.000]; on the scripted law the shield costs -0.040
+[-0.075, -0.005]. The speed cap carries about four fifths of the cost. It
+fires on ~350 ticks per 200 episodes in escort and removes the accelerating
+component whenever a defender is above 0.98 v_max, which a crossing
+intercept against an 11 m/s missile needs. Not changed here: the cap is a
+safety limit, and whether escort should run with a higher cap fraction (or
+none, with the fence alone) is a safety decision, not a tuning one.
 **Robustness, re-run on the new semantics (assault, n=150, seeds 20000+,
 paired):** the gate's edge is +0.027 at perfect link, +0.013 (n.s.) on
 `vicon_lab`, and exactly zero from 20 ms of state latency on. The old headline
@@ -322,8 +332,9 @@ Core claims, each measured not assumed:
     measured and what's written. All data is in `results/robust_*.json` + this
     file's summary; plots exist for tag only (`--plot` wasn't set on the
     detached assault run; regenerate is cheap).
-17. ~~No CI, no git remote~~ **Resolved 2026-09-06**: private repo at
-    `github.com/chrismcgale/pursuit-evasion`, CI green on ubuntu-latest
+17. ~~No CI, no git remote~~ **Resolved 2026-09-06**: repo at
+    `github.com/chrismcgale/pursuit-evasion` (public and MIT-licensed since
+    2026-11; it was private when this item was written), CI green on ubuntu-latest
     (pytest, arena check, C++ build+tests against fetched ORT 1.29.0,
     cross-runtime parity via `scripts/check_parity.py` — parity also holds
     under GCC 13 on foreign hardware). Note: local `origin` stays SSH

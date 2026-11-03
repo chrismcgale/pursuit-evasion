@@ -187,6 +187,11 @@ XML + a gate tree.
 
 ## Changelog / decisions (newest first)
 
+- **2026-11-03** **The shield's escort cost is the speed cap.** Paired on two
+  seed blocks (n=400): shield -0.052 on the gated stack, speed cap alone
+  -0.040, fence alone -0.010. Left unchanged (a safety limit; REVIEW
+  headline section). REVIEW #17 corrected: the repo is public, MIT.
+
 - **2026-11-03** **Stage 2 design proposal, `docs/STAGE2.md`.** Keeps
   `apply_dynamics` as the one transform site and keeps the controller
   interface (desired acceleration direction); the command-to-FC-setpoint
@@ -272,7 +277,8 @@ XML + a gate tree.
   fixed an `aggregate()` crash on defence-game wins with no capture step
   (timeout/spent wins, `eval/scenarios.py`, pinned in `test_robustness`); CI
   added (`.github/workflows/ci.yml` + `scripts/check_parity.py`) and, after
-  Chris's go, private repo `chrismcgale/pursuit-evasion` created — **CI green
+  Chris's go, repo `chrismcgale/pursuit-evasion` created (private then;
+  public, MIT, since 2026-11) — **CI green
   on the first real run** (needed `libzmq3-dev` for BT.CPP's Groot2
   publisher; ORT 1.29.0 release tarball + `-DORT_INCLUDE/-DORT_LIB` works;
   parity holds on GCC 13/foreign hardware). Local `origin` is SSH via
