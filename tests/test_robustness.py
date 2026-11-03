@@ -167,3 +167,15 @@ def test_aggregate_survives_a_win_with_no_capture_step():
     # all wins step-less (pure timeout defence) must not crash either
     agg = BatchReport("x", [rec(True, None)]).aggregate()
     assert np.isnan(agg["mean_steps_to_win"])
+
+
+def test_control_rate_holds_missile_burn_time_constant():
+    """burn_steps counts control steps; the axis must rescale it or a faster
+    loop silently shortens the missile's burn (dt=20 ms used to give 2.4 s
+    instead of 7.2 s and every assault arm 'won' 1.00)."""
+    for game in ("assault", "escort"):
+        g = make_game(game)
+        base = g.arena.evader_dyn.burn_steps * g.arena.timestep * g.episode.control_repeat
+        for period, _, spec in control_rate_configs(game):
+            burn_s = spec.arena.evader_dyn.burn_steps * period
+            assert abs(burn_s - base) <= period, (game, period, burn_s, base)
