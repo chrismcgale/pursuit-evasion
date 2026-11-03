@@ -4,9 +4,9 @@ For every DAgger iteration of a lineage (``<stem>_lineage.json``), measure on
 held-out seeds, paired against the scripted law:
 
   * policy-only   — the checkpoint flying everything
-  * gated         — scripted law + the shipped gate, handing the law's
-                    fallback regime to that checkpoint (no shield: this isolates
-                    the gate)
+  * gated         — scripted law with its fallback regime handed to that
+                    checkpoint (``FallbackFill``, the pre-2026-11-03 defender
+                    gate; no shield: this isolates the handover)
 
 The falsifiable prediction from ROADMAP #4: gated - scripted stays flat (the
 gain is regime coverage, not policy quality) while policy-only rises. The
@@ -20,12 +20,13 @@ import argparse
 import json
 from pathlib import Path
 
+import sys
+sys.path.insert(0, __import__('os').path.dirname(__file__))
 import pursuit_evasion  # noqa: F401  (OpenBLAS pin before numpy)
 import numpy as np
 from stable_baselines3 import PPO
 
-from pursuit_evasion.bt.gating import GatedController
-from pursuit_evasion.env.core import TEAM_PURSUERS
+from fallback_fill import FallbackFill  # noqa: E402  (the pre-2026-11-03 defender handover)
 from pursuit_evasion.eval.robustness import paired_delta, wilson
 from pursuit_evasion.eval.scenarios import run_batch
 from pursuit_evasion.scripted import default_controllers
@@ -61,7 +62,7 @@ def main():
         pol = RLController(PPO.load(str(path), device="cpu"), name=name)
         pol_w = wins_of(pol, a.game, a.episodes, a.seed)
         s, _ = default_controllers(a.game)
-        gate = GatedController(TEAM_PURSUERS, s, pol, game=a.game)
+        gate = FallbackFill(s, pol)
         gate_w = wins_of(gate, a.game, a.episodes, a.seed)
         row = {"name": name, "path": str(path), "select_win": meta.get("select_win"),
                "mse": meta.get("mse"), "dataset": meta.get("dataset"),

@@ -51,6 +51,10 @@ struct GuardDefenders : Controller {
   double min_standoff = 3.5;
   double patrol_radius = 6.0;
   double intercept_radius = 0.7;  // solve against this sphere, not the point (0 = legacy)
+  // No-intercept rule, mirrors defenders.py: "park" (legacy) | "pursue" |
+  // "lead_gate" | "adaptive" (pursue if the asset is static, else lead_gate).
+  std::string fallback_rule = "adaptive";
+  double lead_horizon_s = 10.0;
   GuardDefenders() { name = "scripted_defenders"; }
   std::vector<double> act(const TeamView& v) override;
   // Mirrors defenders.py:plan — the action plus, per agent, whether this law is

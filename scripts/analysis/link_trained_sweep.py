@@ -5,6 +5,8 @@ so every arm sees the same spawns and the same corruption), on the latency
 axis and the preset ladder, comparing a policy trained on a perfect link with
 the same policy fine-tuned under vicon_lab (dagger.py --link), each flying
 alone, gated and gated + shield, against scripted and scripted + shield.
+"Gated" is the law's fallback regime handed to the policy (``FallbackFill``,
+the pre-2026-11-03 defender gate).
 
     .venv/bin/python scripts/analysis/link_trained_sweep.py --game assault \
         --base models/sphere_law/assault_dagger.zip \
@@ -14,14 +16,15 @@ import argparse
 import json
 from pathlib import Path
 
+import sys
+sys.path.insert(0, __import__('os').path.dirname(__file__))
 import pursuit_evasion  # noqa: F401  (OpenBLAS pin before numpy)
 import numpy as np
 from stable_baselines3 import PPO
 
-from pursuit_evasion.bt.gating import GatedController
-from pursuit_evasion.env.core import TEAM_PURSUERS
 from pursuit_evasion.env.games import make_game
 from pursuit_evasion.env.link import PRESETS, LinkedController
+from fallback_fill import FallbackFill  # noqa: E402  (the pre-2026-11-03 defender handover)
 from pursuit_evasion.eval.robustness import axis_profiles, paired_delta, wilson
 from pursuit_evasion.eval.scenarios import run_batch
 from pursuit_evasion.safety import ShieldedController
@@ -39,9 +42,9 @@ def arms(game, base, linked):
     out = {"scripted": law(), "scripted_safe": ShieldedController(law())}
     for tag, path in (("base", base), ("link", linked)):
         out[f"policy_{tag}"] = pol(path, tag)
-        out[f"gated_{tag}"] = GatedController(TEAM_PURSUERS, law(), pol(path, tag), game=game)
+        out[f"gated_{tag}"] = FallbackFill(law(), pol(path, tag))
         out[f"gated_safe_{tag}"] = ShieldedController(
-            GatedController(TEAM_PURSUERS, law(), pol(path, tag), game=game))
+            FallbackFill(law(), pol(path, tag)))
     return out
 
 

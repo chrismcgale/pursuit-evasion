@@ -4,7 +4,9 @@ The 2026-09-06 k-sweep (built, measured, reverted) ran on the point-solve law
 and the proxy gate. This repeats it on the shipped sphere-solve law and the
 law-read gate without touching shipped code: ``DebouncedLaw`` wraps
 ``GuardDefenders.plan()`` and reports an agent's fallback only after it has
-persisted ``k`` consecutive ticks. k=1 is the shipped behaviour (immediate).
+persisted ``k`` consecutive ticks. k=1 is immediate handover. Since
+2026-11-03 the shipped defender gate hands nothing over, so the handover is
+built here with ``FallbackFill``.
 
 Paired: same spawn seeds and the same link corruption (LinkedController seed)
 for every k at a given latency.
@@ -15,14 +17,15 @@ import argparse
 import json
 from pathlib import Path
 
+import sys
+sys.path.insert(0, __import__('os').path.dirname(__file__))
 import pursuit_evasion  # noqa: F401  (OpenBLAS pin before numpy)
 import numpy as np
 from stable_baselines3 import PPO
 
-from pursuit_evasion.bt.gating import GatedController
-from pursuit_evasion.env.core import TEAM_PURSUERS
 from pursuit_evasion.env.games import make_game
 from pursuit_evasion.env.link import LinkedController, LinkProfile
+from fallback_fill import FallbackFill  # noqa: E402  (the pre-2026-11-03 defender handover)
 from pursuit_evasion.eval.robustness import paired_delta, wilson
 from pursuit_evasion.eval.scenarios import run_batch
 from pursuit_evasion.scripted import default_controllers
@@ -69,8 +72,7 @@ def main():
         row = {"latency_s": lat, "arms": {}}
         for k in [0] + a.ks:     # 0 = scripted, no gate
             law, opp = default_controllers(a.game)
-            ctrl = law if k == 0 else GatedController(TEAM_PURSUERS, DebouncedLaw(law, k),
-                                                      policy, game=a.game)
+            ctrl = law if k == 0 else FallbackFill(DebouncedLaw(law, k), policy)
             linked = LinkedController(ctrl, prof, seed=4242, dt=dt)
             rep = run_batch(linked, opp, a.episodes, a.seed, game=a.game)
             wins = [bool(r.win) for r in rep.records]

@@ -1,0 +1,77 @@
+{
+ "game": "escort",
+ "side": "pursuers",
+ "seed": 0,
+ "link": null,
+ "init": null,
+ "episodes": 100,
+ "bc_epochs": 12,
+ "select_episodes": 40,
+ "select_seed0": 9000,
+ "iterations": [
+  {
+   "iter": 0,
+   "dataset": 5231,
+   "mse": 0.04667863940570487,
+   "select_win": 0.075,
+   "path": "escort_dagger_it0.zip"
+  },
+  {
+   "iter": 1,
+   "dataset": 12158,
+   "mse": 0.07346230402753078,
+   "select_win": 0.0,
+   "path": "escort_dagger_it1.zip"
+  },
+  {
+   "iter": 2,
+   "dataset": 18926,
+   "mse": 0.06844534649248231,
+   "select_win": 0.2,
+   "path": "escort_dagger_it2.zip"
+  },
+  {
+   "iter": 3,
+   "dataset": 25155,
+   "mse": 0.06116534708639045,
+   "select_win": 0.175,
+   "path": "escort_dagger_it3.zip"
+  },
+  {
+   "iter": 4,
+   "dataset": 30685,
+   "mse": 0.05494270972034646,
+   "select_win": 0.225,
+   "path": "escort_dagger_it4.zip"
+  },
+  {
+   "iter": 5,
+   "dataset": 36784,
+   "mse": 0.05170708145782604,
+   "select_win": 0.25,
+   "path": "escort_dagger_it5.zip"
+  },
+  {
+   "iter": 6,
+   "dataset": 42637,
+   "mse": 0.049353582763345734,
+   "select_win": 0.225,
+   "path": "escort_dagger_it6.zip"
+  },
+  {
+   "iter": 7,
+   "dataset": 49556,
+   "mse": 0.04785815205983412,
+   "select_win": 0.25,
+   "path": "escort_dagger_it7.zip"
+  },
+  {
+   "iter": 8,
+   "dataset": 56397,
+   "mse": 0.046137715469099436,
+   "select_win": 0.325,
+   "path": "escort_dagger_it8.zip"
+  }
+ ],
+ "best_iter": 8
+}

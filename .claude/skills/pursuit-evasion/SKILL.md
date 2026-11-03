@@ -174,6 +174,10 @@ XML + a gate tree.
 - `cpp/assets/*.xml` are committed but generated — run `dump_arenas --check` after
   any geometry change. `arena.xml` must stay byte-identical unless you mean to
   move the tuned tag baseline.
+- **The gate overrides the law in exactly the regime the law flags.** Any
+  improvement to `GuardDefenders`' fallback action is invisible to (and
+  undone by) the gated stack until the policy is retrained or the gate is
+  removed. Measure scripted alone and gated after any law change.
 - **The defender gate reads the law's own regime** (`GuardDefenders.plan()`
   fallback flags → `scripted_fallback`). Don't reintroduce a feature that
   *re-derives* "infeasible" from geometry — the 2026-09-30 proxy disagreed with
@@ -197,6 +201,15 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-11-03** **Defender law: `adaptive` fallback replaces `park`.** With
+  no intercept the law now pursues (static asset) or guards the asset's
+  predicted position (moving asset). Chosen on blocks 10000/110000, confirmed
+  on fresh 30000: scripted +0.040 assault / +0.180 escort. Both runtimes,
+  parity exact, pinned by `test_defender_fallback_rule_is_adaptive`. The
+  gate hands exactly these ticks to the policy, so the shipped escort gate
+  now loses 0.105 and no assault gate helps (writeup §7.4; REVIEW #19 for
+  the decision). `GuardDefenders(fallback="park")` reproduces older numbers.
 
 - **2026-11-03** **Timing evidence (ROADMAP #6, #18): compute is not the
   constraint, jitter is.** `pe_bench` times scripted law, ONNX, features + BT

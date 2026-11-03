@@ -2,8 +2,8 @@
 <!--
   Air-defence gate profile. Mirrors gating.py:_defender_predicates EXACTLY.
 
-  Hand over to the policy exactly when the scripted law ITSELF is in its
-  gate-point fallback (GuardDefenders::plan sets `scripted_fallback`: no
+  Formerly handed over to the policy exactly when the scripted law ITSELF was in
+  its gate-point fallback (GuardDefenders::plan sets `scripted_fallback`: no
   intercept for its assigned threat). Read off the law, not approximated.
 
   1. Not the tag heuristic. One predicate at a time on the original law
@@ -19,22 +19,34 @@
                                          assault   escort
          old scripted + old gate ....... 0.730     0.495   (previously shipped)
          sphere scripted ............... 0.795     0.545
-         sphere scripted + this tree ... 0.845     0.620   <- shipped
+         sphere scripted + this tree ... 0.845     0.620   <- shipped until 2026-11-03
      Over the fixed law the old proxy LOSES (-0.13 assault): it hands over
      geometry the law now handles. InterceptInfeasible, ThreatImminent and
      DefenderCloseQuarters stay registered in bt_nodes.cpp so every row above
      reproduces from Groot2 by editing this file alone.
 
-  3. The handover is IMMEDIATE: a k-tick debounce was a dose-response loss
+  3. The handover was IMMEDIATE: a k-tick debounce was a dose-response loss
      (0.71/0.59/0.49 for k=1/2/3 at perfect link, nothing recovered under
-     latency). Do not re-add one without beating that table.
+     latency).
+
+  4. 2026-11-03: NOTHING LEFT TO HAND OVER. The law's own fallback (park on a
+     gate point at the asset's current position) was the gap. With the
+     `adaptive` fallback (pursue if the asset is static, guard its predicted
+     position if it moves), on a fresh block 30000 (n=200, paired):
+                                         assault   escort
+         scripted, park fallback ....... 0.750     0.420
+         scripted, adaptive ............ 0.790     0.600   <- shipped law
+         + gate to shipped policy ...... 0.775     0.495   (-0.015, -0.105)
+     So ScriptedFallback now routes to "scripted", like gate_attackers.xml: the
+     branch names the regime in Groot2 and changes nothing. Re-adding an rl
+     branch must beat this table (writeup §7.4).
 -->
 <root BTCPP_format="4" main_tree_to_execute="GateDefenders">
   <BehaviorTree ID="GateDefenders">
     <Fallback name="gate">
-      <Sequence name="scripted_fallback_to_rl">
+      <Sequence name="scripted_fallback_to_scripted">
         <ScriptedFallback/>
-        <SetMode mode="rl"/>
+        <SetMode mode="scripted"/>
       </Sequence>
       <Sequence name="clean_intercept_to_scripted">
         <CleanInterceptScripted/>
