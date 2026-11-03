@@ -30,6 +30,19 @@ combinations stay exact.
   changes nothing.
 - **Shield's escort cost is the speed cap** (paired, two blocks; headline
   section below).
+- **CI is red on `main` since 2026-11-03 13:14 (run 6), before any of this
+  session's changes:** the same commit `a734f87` passed on 2026-10-02. Tag
+  bt_safe parity fails on the runner (scripted parity is exact). The
+  runner now has AVX-512: `main`'s Python gave 1340.882892 on start 2 (the
+  OpenBLAS FMA value), and with PR #2's pin it gives 1340.887337, the value
+  both runtimes give on the cloud Xeon used here. CI's C++ binary gives a
+  third value, 1340.884633, in both runs, so a second, C++-side numerical
+  difference exists on that runner and could not be reproduced here. Suspects:
+  ONNX Runtime's MLAS kernel choice for that CPU (release tarball vs wheel)
+  or glibc libm's CPU-dispatched variants. Next step: one CI run with a
+  per-tick `%.17g` action dump on both sides (the 2026-09-30 method) to find
+  the first differing number. Until then, CI cannot confirm tag bt_safe
+  parity; every check here passes on the Xeon.
 - **CI:** this session could not edit `.github/workflows` (token without
   `workflow` scope). New parity checks live in `scripts/ci_parity.sh`; the
   "Cross-runtime parity" step should call it (one-line edit, Chris).
@@ -280,7 +293,8 @@ Core claims, each measured not assumed:
     navigation" — it is lead guidance + bearing split + terminal break (fixed
     in code; check any new prose).
 
-24. ~~Parity silently depends on the host CPU~~ **Fixed 2026-11-03**: numpy's
+24. **Parity silently depends on the host CPU — half fixed 2026-11-03** (C++
+    side open on the CI runner; see the 2026-11-03 summary): numpy's
     OpenBLAS uses an FMA `ddot` kernel on AVX-512 CPUs, so 3-vector dots differ
     from the C++ runtime in the last bit (tag bt_safe parity failed 3/5 on a
     Xeon). The package pins `OPENBLAS_CORETYPE=Haswell` at import on those
