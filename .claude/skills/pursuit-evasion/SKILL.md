@@ -182,6 +182,10 @@ XML + a gate tree.
   fallback flags → `scripted_fallback`). Don't reintroduce a feature that
   *re-derives* "infeasible" from geometry — the 2026-09-30 proxy disagreed with
   the law on a third of its fallback ticks and lost 13 points.
+- **The defence-game gates are no-ops on purpose** (attacker since
+  2026-09-05, defender since 2026-11-03). Don't "restore" an RL branch
+  without beating the table in `trees/gate_defenders.xml`. Analysis that
+  needs the old defender handover uses `scripts/analysis/fallback_fill.py`.
 - **Don't port the tag gate profile to the defence games.** Measured: adding
   tag's `close_quarters -> RL` branch to the defender gate drops it 0.70 to 0.12.
   The shipped defender gate is deliberately two branches; the ablation is in
@@ -201,6 +205,16 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-11-03** **Defender gate hands over nothing (Chris's call).** After the
+  adaptive fallback, no defender policy beat the law on a fresh block and the
+  shipped escort gate lost 0.105, so `scripted_fallback` now routes to
+  scripted in `_defender_predicates` and `trees/gate_defenders.xml`, like the
+  attacker gate. Pinned by `test_defender_gate_hands_over_nothing` (both
+  runtimes); the old immediate-handover tests became
+  `test_defender_gate_keeps_the_law_in_its_fallback`. Only tag still hands a
+  regime to a policy. Analysis that needs a handover uses
+  `scripts/analysis/fallback_fill.py`.
 
 - **2026-11-03** **Defender law: `adaptive` fallback replaces `park`.** With
   no intercept the law now pursues (static asset) or guards the asset's
@@ -446,6 +460,6 @@ XML + a gate tree.
   clean C API for the C++ port). CPU torch pinned (Blackwell sm_120 needs cu128;
   MLP PPO is CPU-bound anyway). Full C++ runtime with BehaviorTree.CPP + Groot2 +
   ONNX Runtime per the "industry-standard tooling" requirement. Added IL (BC from
-  BT) + PPO fine-tune on terminal intercept, the scenario/instrumentation harness,
+  BT) + PPO fine-tune on terminal intercept, the scripted/instrumentation harness,
   and the safety filter with per-node unit tests. Cross-runtime parity validated
   to ~1e-6 via exact-start checksums.

@@ -118,12 +118,10 @@ Chris's decisions (STAGE2 §6).*
 
 ## Standing questions
 
-- **Revised 2026-11-03 (after writeup §7.4):** the hardware recipe is
-  **scripted + shield**, and since the defender law's `adaptive` fallback
-  there is no defender gate to add: its RL branch was removed (Chris), and on
-  the new law the shield's clean-link cost in `assault` is -0.013 (n.s.)
-  while it is still worth +0.15 / +0.22 at 60 / 80 ms. The question below is
-  answered for the OLD law only.
+- **Revised 2026-11-03 (writeup §8, §7.4):** the hardware recipe is
+  **scripted + shield**, with no defender gate: on the current law it adds
+  nothing, and its RL branch is removed. The question below is answered for
+  the OLD law only.
 - ~~Does the escalation fix (task 3) restore the gate at realistic latency?~~
   **Answered 2026-09-06: no — it destroys the gate at low latency and restores
   nothing.** Refined conclusion: the gate earns its +0.23 below ~30 ms of
@@ -131,7 +129,7 @@ Chris's decisions (STAGE2 §6).*
   recipe at whoop scale (budget ≈50 ms, well-run Vicon ≈10-20 ms) is
   **gate + shield if the volume is clean, scripted + shield if it is not** —
   and the sim can tell those apart per-volume with one latency sweep.
-- Is tag worth keeping at whoop scale, or do the defence games become the
-  only story? (Tag is now the only game where any regime goes to a policy.)
+- Is tag worth keeping at whoop scale, or do the defence games (where the gate
+  earned its keep before the law was fixed) become the only story?
 - 250 Hz ELRS vs 500 Hz: does the uplink one-stale-frame result (REVIEW #6)
   justify the higher rate at whoop control periods?
