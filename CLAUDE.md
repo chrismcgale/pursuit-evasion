@@ -37,12 +37,15 @@ radius is therefore `v²/a_lat` — fast means committed.
 
 **The gate profile is per-game and empirically derived, not ported.** Tag's
 "close quarters is messy → hand it to the policy" is *actively harmful* in air
-defence (0.70 → 0.12 measured). The defender gate hands over exactly one regime:
-where the scripted law is **structurally undefined** — and it reads that off the
-law itself (`GuardDefenders.plan()` → `scripted_fallback`), never a proxy. The
-old proxy (point intercept of the *nearest* threat) disagreed with the law on a
-third of its fallback ticks, and over the fixed law it loses 13 points. Keep it
-at two branches; see `writeup/when-each-wins.md` §7 and `_defender_predicates`.
+defence (0.70 → 0.12 measured). The defender gate used to hand over exactly one
+regime: where the scripted law has no intercept — read off the law itself
+(`GuardDefenders.plan()` → `scripted_fallback`), never a proxy (the old
+nearest-threat proxy disagreed with the law on a third of its fallback ticks
+and lost 13 points). **Since 2026-11-03 it hands over nothing**: once the law's
+own fallback was fixed (below), no policy improved on it. The branch still
+names the regime in Groot2 and routes it to scripted, exactly like the attacker
+gate; pinned by `test_defender_gate_hands_over_nothing` in both runtimes. See
+`writeup/when-each-wins.md` §7 and `_defender_predicates`.
 
 **The defender law solves the intercept against the kill sphere**
 (`intercept_radius` 0.7 m = half the 1.4 m capture radius), not the point. The
@@ -53,11 +56,13 @@ mostly a gap in the law: with no intercept it parked on a gate point at the
 asset's *current* position. Since 2026-11-03 the law's fallback is `adaptive`
 (pursue if the asset is static, guard its *predicted* position if it moves):
 scripted +0.040 assault / +0.180 escort on a fresh block, after which the
-shipped gate adds nothing in assault and *loses* 0.105 in escort, because it
-overrides the better fallback with a policy cloned from the old one (writeup
-§7.4; `fallback="park"` reproduces older numbers). Lesson, twice: before
-gating a regime, check the scripted law is solving the right problem. Tag's
-`InterceptPursuers` still uses the point solve on purpose (calibrated baseline).
+shipped gate added nothing in assault and *lost* 0.105 in escort, because it
+overrode the better fallback with a policy cloned from the old one, so the RL
+branch was removed (writeup §7.4; `fallback="park"` reproduces older law
+numbers, and older gated numbers need the RL branch from git history).
+Lesson, twice: before gating a regime, check the scripted law is solving the
+right problem. Tag's `InterceptPursuers` still uses the point solve on purpose
+(calibrated baseline).
 
 **The attacker gate hands over nothing, and that is measured too.** The same
 ablation on the evader/missile slot came out monotonically downhill (breach
@@ -65,7 +70,9 @@ ablation on the evader/missile slot came out monotonically downhill (breach
 branches were deleted; `_attacker_predicates` and `cpp/trees/gate_attackers.xml`
 now route everything to scripted. Do not "restore" them — a committed run-in is
 what a guidance law is for, and the loss is pinned by
-`test_attacker_gate_hands_over_nothing` in both runtimes.
+`test_attacker_gate_hands_over_nothing` in both runtimes. Both defence-game
+gates are now no-ops for the same measured reason; only tag still hands regimes
+to a policy.
 
 The generalisation, and the rule to apply before writing any new profile: **gate
 where the scripted controller is undefined, not where the situation looks messy.**

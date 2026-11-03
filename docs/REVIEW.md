@@ -1,15 +1,16 @@
 # REVIEW — state of the project and known issues
 
-*As of 2026-11-03 (phases 1-3 of the post-review plan, PRs #2-#9, stacked).
+*As of 2026-11-03 (phases 1-3 of the post-review plan, PRs #2-#10, stacked).
 This document and `ROADMAP.md` are the session-carrying context: read these
 two, `CLAUDE.md` (invariants), and the runbook skill before touching
 anything.*
 
 ## 2026-11-03 session — what changed
 
-Semantics changed in nothing shipped: every new constraint is off by default,
-every new model sits beside the shipped ones, and all six default parity
-combinations stay exact.
+Two changes alter shipped behaviour, both in both runtimes with parity exact:
+the defender law's `adaptive` fallback (#9) and the removal of the defender
+gate's RL branch (#10). Everything else is off by default or sits beside the
+shipped models.
 
 - **Parity is CPU-dependent through OpenBLAS (#24).** Pinned at import on
   AVX-512 hosts, with a warning if numpy was imported first.
@@ -21,13 +22,15 @@ combinations stay exact.
   Python-written corruption tape.
 - **Defender law fallback fixed (#19, writeup §7.4):** `adaptive` replaces
   `park`; scripted +0.04 assault / +0.18 escort on a fresh block. The shipped
-  escort gate now loses 0.105; whether to keep any defender gate is Chris's
-  decision (#19).
+  escort gate lost 0.105, so (Chris's call) the defender gate's RL branch is
+  removed; the gated defender stack is now the scripted law. Analysis that
+  needs the old handover uses `scripts/analysis/fallback_fill.py`.
 - **Defender retrain + gate value vs policy quality (#19, writeup §7.3).** The
   gate's gain does not follow the policy's own quality; simple scripted
   fallbacks explain much of it (assault pure pursuit +0.06; escort
   predicted-asset gate point +0.08-0.10); escort's BC iteration 0 adds +0.25
-  on two blocks. Which models ship is Chris's decision.
+  on two blocks and +0.185 over the fixed law on a third. What it does is the
+  open follow-up.
 - **Robustness re-run and written up (writeup §8, #16, #22).** Recipe:
   scripted + shield. The old "+0.16 on vicon_lab" is retracted. The
   control-rate axis had a missile-burn artefact (#5). Training under the link
@@ -143,7 +146,8 @@ still loses (k3-k1 = -0.027 at 0 ms, zero from 20 ms); one stale command
 frame 0.787 -> 0.273 (equal to the 60 ms state-latency row, as it should be);
 training the policy under `vicon_lab` changes nothing (§8.8); and the
 assault control-rate "saturation at 1.00" was a missile-burn artefact
-(#5).
+(#5). All of this is on the old `park` fallback; on the `adaptive` law the
+gate adds nothing and was removed (#19, writeup §7.4).
 Pre-review result JSONs are preserved in `results/pre-review-2026-09-30/`.
 
 ## What exists
@@ -293,21 +297,30 @@ Core claims, each measured not assumed:
         third independent block) and no assault gate;
     (c) find what that BC policy does and move it into the law, as was done
         twice already. Recommended: (a) now, (c) as the follow-up.
+    **Chris chose (a), done 2026-11-03:** the defender gate's RL branch is
+    removed in both runtimes (`scripted_fallback` routes to scripted, as on
+    the attacker side; `test_defender_gate_hands_over_nothing`). The gated
+    defender stack equals the scripted law (identical outcomes on 100
+    episodes per game). (c) is the open follow-up (the escort BC
+    iteration-0 analysis); `scripts/analysis/fallback_fill.py` rebuilds the
+    old handover for it.
     The `pe-games` tables in writeup §6 and the robustness sweep in §8 are on
     the old `park` rule; §7.4 re-runs assault latency/presets on the new one.
 20. **Each gated agent gets an action from a team-joint policy** trained to
     drive both agents; mixed scripted/RL ticks are out of its training
-    distribution.
+    distribution. (Now only relevant to tag, the one game whose gate still
+    hands regimes to a policy.)
 21. **Captured agents coast, they do not freeze** (ctrl zeroed, velocity decays
     with tau ~0.25 s; one captured mid-step keeps thrusting until the step
     ends). Breach is checked once per control step but capture every substep,
     so a capture can pre-empt an earlier in-step breach (slightly pro-defender).
 22. ~~Robustness axes other than assault latency/presets were measured on the
     pre-review semantics~~ **Re-run 2026-11-03** (all assault axes and all tag
-    axes, n=150, seeds 20000+, with a `scripted + shield` arm). ~300 paired deltas, still no multiple-comparison
-    correction (stated in writeup §8, which leans on patterns across levels
-    and games rather than single cells); the control-rate axis runs policies
-    at periods they were not trained at.
+    axes, n=150, seeds 20000+, with a `scripted + shield` arm). ~300 paired
+    deltas, still no multiple-comparison correction (stated in writeup §8,
+    which leans on patterns across levels and games rather than single
+    cells); the control-rate axis runs policies at periods they were not
+    trained at.
 23. Writeup/attacker docstrings called the missile law "proportional
     navigation" — it is lead guidance + bearing split + terminal break (fixed
     in code; check any new prose).
@@ -406,7 +419,8 @@ Core claims, each measured not assumed:
     jumpy), which unlike the debounce would leave perfect-link behaviour
     untouched — but the burden of proof is now the k-sweep table, and the
     measured story ("the shield, not the gate, carries degradation") may simply
-    be the answer.
+    be the answer. (Moot for the defence games since the defender gate hands
+    nothing over.)
 14. ~~`LinkedController` history buffer caps at 64 views~~ **Fixed
     2026-11-03** in both runtimes: the view history is sized
     `ceil(latency / dt) + 1`, the command history `round(cmd latency / dt) + 1`
@@ -440,10 +454,13 @@ Core claims, each measured not assumed:
   predicates by test), `evaluate_branches()`.
 - `eval/trace.py` / `eval/explorer.py` — per-tick recorder (`--link`) and the
   self-contained HTML viewer.
+- `scripts/analysis/fallback_fill.py` — rebuilds the removed defender
+  handover (law's fallback regime -> any controller) for analysis.
 - `cpp/` — mirrored runtime; **any semantic change must land in both and pass
   `pe-parity` vs `pe_run --parity` for every `--game` × `--controller
   scripted|bt_safe`** (CLAUDE.md invariant; CI runs all six).
-- Tests that pin findings: `test_attacker_gate_hands_over_nothing` (×2
-  runtimes), `test_perfect_link_is_a_no_op`,
+- Tests that pin findings: `test_attacker_gate_hands_over_nothing` and
+  `test_defender_gate_hands_over_nothing` (×2 runtimes each),
+  `test_defender_fallback_rule_is_adaptive` (×2), `test_perfect_link_is_a_no_op`,
   `test_tag_control_period_exceeds_its_own_latency_budget`,
   `test_branch_reads_match_predicates`.
