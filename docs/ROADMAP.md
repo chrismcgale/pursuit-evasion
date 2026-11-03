@@ -19,7 +19,8 @@ and what is broken.*
    nothing recovered at 20-60 ms. Genuine infeasibility doesn't flicker
    (20-30-tick streaks, traced), so persistence is pure delay. The
    escalation was a symptom; immediate handover is load-bearing and now
-   pinned by `test_defender_handover_is_immediate` in both runtimes. The
+   pinned by `test_defender_handover_is_immediate` in both runtimes (since
+   2026-11-03 moot: the defender gate hands nothing over). The
    negative result IS the design contribution — writeup §robustness should
    carry the k-table.
 4. ~~Gate-value vs policy-quality curve~~ **Done 2026-11-03** (writeup §7.3,
@@ -31,9 +32,9 @@ and what is broken.*
    ~~Next: fix both scripted fallbacks~~ **Done 2026-11-03** (writeup §7.4):
    `adaptive` fallback, scripted +0.04 / +0.18 on a fresh block; afterwards
    no defender gate adds anything except escort's BC iteration 0 (+0.185),
-   and the shipped escort gate loses 0.105. Next: whether to keep a defender
-   gate (REVIEW #19), and what the escort BC policy does in the fallback
-   regime that the law still does not.
+   and the shipped escort gate loses 0.105. **Defender gate RL branch
+   removed (Chris, 2026-11-03).** Next: what the escort BC policy does in the
+   fallback regime that the law still does not.
 5. ~~Assault `control_rate` axis~~ **Done 2026-09-06** (REVIEW #5): gate edge
    holds at every period; dt=20 ms saturates every arm to 1.00 — **a
    missile-burn artefact, fixed 2026-11-03** (REVIEW #5). Still open from this
@@ -117,11 +118,12 @@ Chris's decisions (STAGE2 §6).*
 
 ## Standing questions
 
-- **Revised 2026-11-03 (full re-run, writeup §8):** the hardware recipe is
-  **scripted + shield**. Under the shield the defender gate adds +0.04..+0.08
-  on a clean volume and under noise/occlusion and nothing past ~30 ms of state
-  latency, so "gate + shield on a clean volume" is a small refinement, not a
-  different recipe. The question below is answered for the OLD law only.
+- **Revised 2026-11-03 (after writeup §7.4):** the hardware recipe is
+  **scripted + shield**, and since the defender law's `adaptive` fallback
+  there is no defender gate to add: its RL branch was removed (Chris), and on
+  the new law the shield's clean-link cost in `assault` is -0.013 (n.s.)
+  while it is still worth +0.15 / +0.22 at 60 / 80 ms. The question below is
+  answered for the OLD law only.
 - ~~Does the escalation fix (task 3) restore the gate at realistic latency?~~
   **Answered 2026-09-06: no — it destroys the gate at low latency and restores
   nothing.** Refined conclusion: the gate earns its +0.23 below ~30 ms of
@@ -129,7 +131,7 @@ Chris's decisions (STAGE2 §6).*
   recipe at whoop scale (budget ≈50 ms, well-run Vicon ≈10-20 ms) is
   **gate + shield if the volume is clean, scripted + shield if it is not** —
   and the sim can tell those apart per-volume with one latency sweep.
-- Is tag worth keeping at whoop scale, or do the defence games (where the gate
-  earns its keep) become the only story?
+- Is tag worth keeping at whoop scale, or do the defence games become the
+  only story? (Tag is now the only game where any regime goes to a policy.)
 - 250 Hz ELRS vs 500 Hz: does the uplink one-stale-frame result (REVIEW #6)
   justify the higher rate at whoop control periods?
