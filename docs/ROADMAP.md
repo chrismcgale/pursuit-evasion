@@ -28,8 +28,12 @@ and what is broken.*
    (assault flat across 0.005 -> 0.175). Escort's BC iteration 0 is an
    outlier (+0.25 on two blocks). Simple scripted fills explain much of the
    gain (assault pure pursuit +0.06, escort predicted-asset gate +0.08-0.10).
-   **Next: fix both scripted fallbacks in both runtimes, then retrain**
-   (REVIEW #19 option d).
+   ~~Next: fix both scripted fallbacks~~ **Done 2026-11-03** (writeup §7.4):
+   `adaptive` fallback, scripted +0.04 / +0.18 on a fresh block; afterwards
+   no defender gate adds anything except escort's BC iteration 0 (+0.185),
+   and the shipped escort gate loses 0.105. Next: whether to keep a defender
+   gate (REVIEW #19), and what the escort BC policy does in the fallback
+   regime that the law still does not.
 5. ~~Assault `control_rate` axis~~ **Done 2026-09-06** (REVIEW #5): gate edge
    holds at every period; dt=20 ms saturates every arm to 1.00 — **a
    missile-burn artefact, fixed 2026-11-03** (REVIEW #5). Still open from this

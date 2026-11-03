@@ -48,7 +48,14 @@ at two branches; see `writeup/when-each-wins.md` §7 and `_defender_predicates`.
 (`intercept_radius` 0.7 m = half the 1.4 m capture radius), not the point. The
 point solve called reachable geometry "infeasible"; fixing it lifted *scripted*
 assault 0.53 → 0.80 on held-out seeds, more than the old gate ever added. After
-it the gate still earns +0.05 (assault) / +0.075 (escort). Lesson: before
+it the gate still earned +0.05 (assault) / +0.075 (escort) — and that, too, was
+mostly a gap in the law: with no intercept it parked on a gate point at the
+asset's *current* position. Since 2026-11-03 the law's fallback is `adaptive`
+(pursue if the asset is static, guard its *predicted* position if it moves):
+scripted +0.040 assault / +0.180 escort on a fresh block, after which the
+shipped gate adds nothing in assault and *loses* 0.105 in escort, because it
+overrides the better fallback with a policy cloned from the old one (writeup
+§7.4; `fallback="park"` reproduces older numbers). Lesson, twice: before
 gating a regime, check the scripted law is solving the right problem. Tag's
 `InterceptPursuers` still uses the point solve on purpose (calibrated baseline).
 

@@ -1,6 +1,6 @@
 # REVIEW — state of the project and known issues
 
-*As of 2026-11-03 (phases 1-3 of the post-review plan, PRs #2-#8, stacked).
+*As of 2026-11-03 (phases 1-3 of the post-review plan, PRs #2-#9, stacked).
 This document and `ROADMAP.md` are the session-carrying context: read these
 two, `CLAUDE.md` (invariants), and the runbook skill before touching
 anything.*
@@ -19,6 +19,10 @@ combinations stay exact.
   under #12).
 - **The link layer runs in C++ (#11, #14)** with exact parity through a
   Python-written corruption tape.
+- **Defender law fallback fixed (#19, writeup §7.4):** `adaptive` replaces
+  `park`; scripted +0.04 assault / +0.18 escort on a fresh block. The shipped
+  escort gate now loses 0.105; whether to keep any defender gate is Chris's
+  decision (#19).
 - **Defender retrain + gate value vs policy quality (#19, writeup §7.3).** The
   gate's gain does not follow the policy's own quality; simple scripted
   fallbacks explain much of it (assault pure pursuit +0.06; escort
@@ -276,6 +280,21 @@ Core claims, each measured not assumed:
         when no intercept in assault; predicted-asset gate point in escort),
         both runtimes + parity, then retrain and re-measure. Shipping a policy
         to cover a gap a ten-line rule closes repeats the §7.2 pattern.
+    **(d) done 2026-11-03 (writeup §7.4):** the law's fallback is now
+    `adaptive` (both runtimes, parity exact, `fallback="park"` restores the
+    old rule). Fresh block 30000: scripted assault +0.040, escort +0.180.
+    Retrained on the new law (`models/adaptive_law/`). **New decision for
+    Chris, and it matters now:** with the new law the *shipped* escort gate
+    loses -0.105 [-0.175, -0.035] (it overrides the better fallback with a
+    clone of the old one), and in assault no gate adds anything. Options:
+    (a) drop the defender gate (ship scripted + shield; simplest, nothing
+        measured is lost);
+    (b) keep the gate with the escort BC iteration-0 policy (+0.185 on a
+        third independent block) and no assault gate;
+    (c) find what that BC policy does and move it into the law, as was done
+        twice already. Recommended: (a) now, (c) as the follow-up.
+    The `pe-games` tables in writeup §6 and the robustness sweep in §8 are on
+    the old `park` rule; §7.4 re-runs assault latency/presets on the new one.
 20. **Each gated agent gets an action from a team-joint policy** trained to
     drive both agents; mixed scripted/RL ticks are out of its training
     distribution.

@@ -609,6 +609,56 @@ gains measured here are rules the scripted law can adopt. The escort it0 gain is
 the only one no simple rule matched, and it is larger than anything else in
 the defence games.
 
+### 7.4 Fixing the fallback in the law
+
+§7.3 pointed at the scripted law's fallback: with no intercept it parked on a
+gate point placed at the asset's current position. Four rules for that regime
+were compared as the law's own fallback (`GuardDefenders(fallback=...)`,
+`scripts/analysis/fallback_select.py`, scripted law alone, n = 200, paired
+against `park`), choosing on seed blocks 10000+ and 110000+ and confirming
+the winner once on a block never used before, 30000+ (block 20000+ had
+suggested the idea in §7.3, so it could not confirm it):
+
+| rule | `assault` 10000 / 110000 | `escort` 10000 / 110000 |
+|---|---|---|
+| park (old) | 0.770 / 0.740 | 0.490 / 0.545 |
+| pursue the assigned threat | +0.010 / +0.070 | -0.170 / -0.195 |
+| gate point at the asset's predicted position | 0.000 / 0.000 | +0.140 / +0.075 |
+| adaptive: pursue if the asset is static, else predicted gate point | +0.010 / +0.070 | +0.140 / +0.075 |
+
+On block 30000+, `adaptive` against `park`: `assault` 0.790 vs 0.750, +0.040
+[+0.015, +0.070]; `escort` 0.600 vs 0.420, +0.180 [+0.115, +0.245]. It is now
+the law's default in both runtimes (parity exact; `fallback="park"`
+reproduces every earlier number in this document).
+
+The gate hands exactly these ticks to the policy, so the fix changes what the
+gate is worth. Re-measured on block 30000+ (gated minus the new scripted law,
+n = 200, paired):
+
+| policy on the RL branch | `assault` (scripted 0.790) | `escort` (scripted 0.600) |
+|---|---|---|
+| shipped (DAgger clone of the old law) | -0.015 [-0.040, +0.005] | -0.105 [-0.175, -0.035] |
+| DAgger on the new law, iterations 1-8 | -0.005 to +0.010, none significant | -0.065 to +0.040 |
+| DAgger on the new law, best on selection (it8) | +0.005 [-0.020, +0.030] | +0.010 [-0.050, +0.070] |
+| behaviour clone, iteration 0 (old or new law) | +0.010 / +0.015 | +0.185 [+0.115, +0.260] |
+
+In `assault` the law has absorbed everything the gate used to add. In
+`escort` the shipped gate now costs 0.105, because it replaces the better
+fallback with a copy of the worse one. One effect is left that no rule here
+explains: an escort behaviour clone trained only on expert-visited states
+adds +0.185 on top of the fixed law, the same size on a third independent
+block (§7.3: +0.245, +0.270). Placing the gate point on the convoy's predicted
+position captures part of what it does, and the rest is still open.
+
+The robustness picture moves with the law (`assault`, latency and presets
+re-run on block 20000+, n = 150). Scripted is 0.833 at a perfect link (was
+0.787) and the shield's clean-link cost shrinks from -0.060 to -0.013 (not
+significant), while it is still worth +0.15 at 60 ms and +0.22 at 80 ms. The
+gate under the shield is now -0.053 [-0.093, -0.013] at a perfect link and
+never positive. §8 below was measured on the old law; its conclusions about
+latency and the shield hold, and its "add the defender gate on a clean
+volume" no longer does.
+
 ### Cross-runtime validation of the new games
 
 Both defence games were re-validated under the CLAUDE.md invariant. On a shared
@@ -652,7 +702,8 @@ asterisk marks an interval that excludes zero. These tables use a different
 seed block from the headline tables in §6 (10000+) and are not comparable
 with them cell for cell. All numbers are on the post-2026-09-30 semantics
 (sphere-solve defender law, gate on the law's own fallback flag,
-brake-aware fence). Arms: the scripted law, the scripted law under the
+brake-aware fence) with the defender law's old `park` fallback; §7.4 re-runs
+the `assault` latency and preset axes on the current `adaptive` fallback. Arms: the scripted law, the scripted law under the
 shield, the gate, the gate under the shield, and the policy alone.
 
 Two limits apply to the whole section. **The opponent always flies a perfect
@@ -923,7 +974,9 @@ would be the next test; neither is in reach of a fine-tune.
   `assault` the shield costs 0.03-0.06 on a clean link and is worth +0.11 to
   +0.21 from 60 ms of latency or one stale command frame. In `tag` it costs
   nothing measurable on a clean link and is worth +0.15 on `vicon_busy`.
-- **Add the defender gate on a clean volume.** Under the shield it adds
+- **Add the defender gate on a clean volume** (old law only; see §7.4: on the
+  current law it adds nothing in `assault` and the shipped gate loses in
+  `escort`). Under the shield it adds
   +0.040 / +0.047 on `perfect` / `vicon_lab` and +0.05 to +0.08 under noise
   and moderate occlusion, and its paired delta is never negative on any
   `assault` axis measured. It stops
