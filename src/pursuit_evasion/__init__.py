@@ -20,17 +20,34 @@ def _pin_openblas_kernel() -> None:
     on AVX-512 hosts: forcing the Haswell kernel on a CPU without AVX2 would
     crash.
     """
+    import sys
     if "OPENBLAS_CORETYPE" in _os.environ:
         return
     try:
         with open("/proc/cpuinfo") as f:
-            for line in f:
-                if line.startswith("flags"):
-                    if " avx512f" in line:
-                        _os.environ["OPENBLAS_CORETYPE"] = "Haswell"
-                    return
+            avx512 = any(line.startswith("flags") and " avx512f" in line for line in f)
     except OSError:
-        pass
+        return
+    if not avx512:
+        return
+    _os.environ["OPENBLAS_CORETYPE"] = "Haswell"
+    if "numpy" in sys.modules:
+        # Too late: OpenBLAS already picked its kernel. Say so loudly instead of
+        # letting every gated tag result drift off the reference semantics.
+        import math
+        import warnings
+        import numpy as np
+        rng = np.random.default_rng(0)
+        for _ in range(200):
+            a, b = rng.normal(size=3), rng.normal(size=3)
+            if float(a @ b) != (a[0] * b[0] + a[1] * b[1]) + a[2] * b[2]:
+                warnings.warn(
+                    "numpy was imported before pursuit_evasion on an AVX-512 host, so "
+                    "OpenBLAS uses its FMA ddot kernel and results will not match the "
+                    "C++ runtime or the reference machines. Import pursuit_evasion "
+                    "first, or set OPENBLAS_CORETYPE=Haswell.", RuntimeWarning, stacklevel=3)
+                break
+        del math
 
 
 _pin_openblas_kernel()
