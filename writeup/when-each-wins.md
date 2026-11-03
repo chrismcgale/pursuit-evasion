@@ -53,6 +53,12 @@ The learned-side results are a compact tour of when each technique works:
   envelope instead of wandering to the walls — safety here *improves* task
   performance rather than costing it. It is the largest single lever on the
   learned side, which was not the expected result for a V&V layer.
+- **Through a realistic link, state latency decides everything** (§8). From
+  about 30 ms the defender gate changes no outcome, the shield turns from a
+  0.05 cost into the arm worth +0.11 to +0.21, and training the policy under
+  the link changes nothing. The recipe for hardware is the scripted law under
+  the shield, with the defender gate as a small refinement on a clean volume.
+  The earlier "gate survives a well-run Vicon volume (+0.16)" no longer holds.
 - **A physical invariant caught a bug that cross-runtime parity could not.** Both
   runtimes agreed exactly on an action-clipping rule that let a diagonal command
   buy 1.73× thrust; it inflated every learned result and was invisible to the
@@ -592,7 +598,285 @@ arbitrary correction. Missiles stay hard-bounded by their MuJoCo joint ranges �
 so the invariant is enforced, but by the *model*, not by the shield. On a real
 vehicle that distinction matters: a shield you cannot actuate is not a shield.
 
-## 8. Limitations & next
+## 8. Robustness to the link
+
+Every number above was measured through a perfect link: controllers saw exact
+state and their commands acted at once. This section re-measures the shipped
+stacks through a modelled sim-to-real link (`env/link.py`, mirrored in the C++
+runtime with exact parity) to find which stack to fly on 2-4 real airframes.
+
+**Protocol.** One axis at a time from nominal upward (state latency, uplink
+latency, motor lag, velocity and position noise, identity swaps, marker
+occlusion, packet loss, battery sag), plus a ladder of four whole-rig presets
+(`perfect`, `vicon_lab`, `vicon_busy`, `field_degraded`) and the control
+period itself (`pe-robust`). n = 150 episodes per point on seeds 20000+.
+Every arm at a level sees the same spawns and the same corruption
+realisation, so differences between arms are paired: win rates carry 95%
+Wilson intervals, deltas carry 95% paired-bootstrap intervals, and an
+asterisk marks an interval that excludes zero. These tables use a different
+seed block from the headline tables in §6 (10000+) and are not comparable
+with them cell for cell. All numbers are on the post-2026-09-30 semantics
+(sphere-solve defender law, gate on the law's own fallback flag,
+brake-aware fence). Arms: the scripted law, the scripted law under the
+shield, the gate, the gate under the shield, and the policy alone.
+
+Two limits apply to the whole section. **The opponent always flies a perfect
+link**: only the pursuer-slot stack is degraded, so these curves measure one
+team's sensitivity, not a symmetric degradation (REVIEW #7). **There is no
+multiple-comparison correction**: the full sweep has roughly 300 paired
+deltas, and at the 95% level about 15 of them would exclude zero by chance.
+Single starred cells are weak evidence; patterns across adjacent levels and
+across both games are what the conclusions rest on.
+
+Figures: `figures/robust_latency.png`, `figures/robust_presets.png`,
+`figures/robust_control_rate.png`. Tables: `scripts/analysis/robust_report.py`
+on the `pe-robust` JSONs.
+
+### 8.1 The preset ladder
+
+![preset ladder](figures/robust_presets.png)
+
+| `assault` | scripted | scripted + shield | gate | gate + shield | policy alone |
+|---|---|---|---|---|---|
+| perfect | 0.787 | 0.727 | 0.813 | 0.767 | 0.067 |
+| vicon_lab | 0.713 | 0.680 | 0.727 | 0.727 | 0.047 |
+| vicon_busy | 0.533 | 0.540 | 0.533 | 0.567 | 0.053 |
+| field_degraded | 0.153 | 0.153 | 0.160 | 0.160 | 0.053 |
+
+| `tag` | scripted | scripted + shield | gate | gate + shield | policy alone |
+|---|---|---|---|---|---|
+| perfect | 0.560 | 0.527 | 0.187 | 0.353 | 0.253 |
+| vicon_lab | 0.507 | 0.513 | 0.113 | 0.347 | 0.160 |
+| vicon_busy | 0.293 | 0.440 | 0.140 | 0.173 | 0.120 |
+| field_degraded | 0.060 | 0.127 | 0.007 | 0.027 | 0.020 |
+
+Paired deltas:
+
+| preset | `assault` gate - scripted | `assault` gate + shield - scripted + shield | `assault` shield on scripted | `tag` shield on scripted | `tag` shield on gate |
+|---|---|---|---|---|---|
+| perfect | +0.027 [+0.000, +0.060] | +0.040 [+0.013, +0.073]* | -0.060 [-0.107, -0.013]* | -0.033 [-0.120, +0.053] | +0.167 [+0.067, +0.267]* |
+| vicon_lab | +0.013 [-0.013, +0.040] | +0.047 [+0.013, +0.080]* | -0.033 [-0.073, +0.000] | +0.007 [-0.087, +0.100] | +0.233 [+0.140, +0.327]* |
+| vicon_busy | +0.000 [-0.027, +0.027] | +0.027 [+0.000, +0.060] | +0.007 [-0.033, +0.053] | +0.147 [+0.053, +0.240]* | +0.033 [-0.047, +0.113] |
+| field_degraded | +0.007 [+0.000, +0.020] | +0.007 [+0.000, +0.020] | +0.000 | +0.067 [+0.000, +0.133] | +0.020 [-0.007, +0.053] |
+
+**The old headline does not hold.** Before the 2026-09-30 review, the gate's
+advantage in `assault` was +0.23 at a perfect link and +0.16 on `vicon_lab`,
+and was reported as "the gate survives a well-run Vicon volume". That
+advantage was mostly the old law's point-solve bug (§7.2) surviving the link.
+Over the corrected law, the unshielded gate adds +0.027 at a perfect link and
++0.013 (not significant) on `vicon_lab`. Under the shield the gate still adds
++0.040 and +0.047, both significant, so on a clean volume it remains a small
+refinement on top of the shield. In `tag` the gate loses at every rung, with
+or without the shield.
+
+### 8.2 The latency cliff and `latency_budget`
+
+![state latency](figures/robust_latency.png)
+
+State latency is the axis that decides the outcome. `assault` scripted falls
+0.787, 0.680, 0.493, 0.273, 0.107 at 0, 20, 40, 60, 80 ms; `tag` scripted
+falls 0.560, 0.387, 0.227, 0.073, 0.053 at the same points. In `assault`, 40 ms
+of latency (-0.29) costs about as much as the worst level of position noise
+(0.40 m, -0.29), and only heavy occlusion (20% of ticks in 5-tick bursts,
+-0.57) and 80 ms of motor lag (-0.42) cost more, at levels far beyond a
+working mocap rig (§8.5).
+
+`latency_budget(game) = capture_radius / closing_speed` is the lag at which
+the estimate of the opponent has moved by the whole capture tolerance: 76 ms
+for `assault` (1.4 m / 18.5 m/s) and 70 ms for `tag` (0.7 m / 10 m/s). It
+predicts where the curves reach their floor, without simulation: by 80 ms
+`assault` scripted is at 0.107 and `tag` at 0.053. The budget is not a hard
+wall; scripted `assault` still wins 0.06 at 120 ms, and the shielded arms
+level off near 0.2-0.3, so "no controller of any kind can intercept" past it
+overstates the case. Constant-velocity forward prediction of the delayed
+estimate recovers only +0.01 (20 ms) to +0.12 (40 ms) (2026-09-30 review), so
+the cliff is not an artefact of naive delay handling. The fixed scripted law
+degrades more gracefully than the old one did (40 ms: 0.49 vs 0.19; 60 ms:
+0.27 vs 0.05).
+
+### 8.3 The shield goes from a cost to the load-bearing arm
+
+| state latency | `assault` shield on scripted | `assault` shield on gate | `tag` shield on scripted | `tag` shield on gate |
+|---|---|---|---|---|
+| 0 ms | -0.060 [-0.107, -0.013]* | -0.047 [-0.093, -0.007]* | -0.033 [-0.120, +0.053] | +0.167 [+0.067, +0.267]* |
+| 20 ms | -0.013 [-0.067, +0.040] | +0.013 [-0.033, +0.060] | +0.060 [-0.033, +0.153] | +0.227 [+0.140, +0.313]* |
+| 40 ms | +0.040 [+0.000, +0.087] | +0.047 [+0.007, +0.093]* | +0.047 [-0.047, +0.133] | +0.160 [+0.093, +0.233]* |
+| 60 ms | +0.113 [+0.053, +0.180]* | +0.133 [+0.067, +0.200]* | +0.093 [+0.027, +0.160]* | +0.113 [+0.053, +0.173]* |
+| 80 ms | +0.200 [+0.133, +0.267]* | +0.207 [+0.140, +0.280]* | +0.073 [+0.013, +0.133]* | +0.040 [-0.013, +0.093] |
+| 120 ms | +0.153 [+0.100, +0.213]* | +0.167 [+0.113, +0.227]* | +0.120 [+0.073, +0.173]* | +0.067 [+0.027, +0.107]* |
+
+At a perfect link the shield costs `assault` 0.05-0.06: its speed cap
+removes the accelerating component whenever a defender is above 0.98 of top
+speed, which a crossing intercept needs (the same cap carries most of the
+shield's cost in `escort`; REVIEW). The cost crosses zero between 20 and
+30 ms. From 60 ms the shield is worth +0.11 to +0.21 in `assault` and +0.07
+to +0.12 on the `tag` scripted law: on a stale estimate the fence and the cap
+stop the aircraft from committing to an intercept that no longer exists and
+keep it in the volume where the next estimate can still be used. In `tag`
+the shield has always been the main lever on the learned side (§4); here it
+is also the only arm that helps the scripted law at high latency.
+
+### 8.4 The gate under degradation, and the debounce that did not help
+
+The `assault` gate's edge over scripted is +0.027 at 0 ms, +0.033 at 10 ms,
+and from 40 ms on the two arms produce **identical outcomes on every
+episode** (at 20-30 ms the rates are within one episode), even though the gate hands over more as the estimate ages: 11.5%
+of agent-ticks at 0 ms, 15% at 20 ms, 22% at 40 ms and 26% at 60 ms (40
+episodes, seeds 20000+). The extra handovers come from the law's fallback
+flag firing on a stale estimate. They land on engagements that are already
+lost, so the policy changes the trajectory and not the result.
+
+The designed fix for that escalation was a debounce: hand over only after the
+fallback has persisted k ticks. It was built, measured and reverted on
+2026-09-06, on the old point-solve law and proxy gate, where it lost
+monotonically: gated 0.71 / 0.59 / 0.49 at k = 1 / 2 / 3 at a perfect link,
+k3 - k1 = -0.22, nothing recovered at any latency. Re-measured on the current
+law and gate (`scripts/analysis/debounce_k.py`, same protocol, shipped
+policy, the debounce wrapped around `GuardDefenders.plan()` without touching
+shipped code):
+
+| state latency | scripted | k = 1 (shipped) | k = 2 | k = 3 | k = 1 - scripted | k = 3 - k = 1 |
+|---|---|---|---|---|---|---|
+| 0 ms | 0.787 | 0.813 | 0.793 | 0.787 | +0.027 [+0.000, +0.060] | -0.027 [-0.060, +0.000] |
+| 20 ms | 0.680 | 0.680 | 0.680 | 0.680 | 0.000 | 0.000 |
+| 40 ms | 0.493 | 0.493 | 0.493 | 0.493 | 0.000 | 0.000 |
+| 60 ms | 0.273 | 0.273 | 0.273 | 0.273 | 0.000 | 0.000 |
+
+The direction is the same (each tick of delay before handover costs) and the
+size is a tenth of before, because the corrected law's fallback regime is
+small. At 20 ms and beyond every k gives the scripted result exactly, for the
+reason above. Immediate handover stays (pinned by
+`test_defender_handover_is_immediate` in both runtimes).
+
+### 8.5 Identity swaps, occlusion, noise and motor lag
+
+`assault`, worst level of each axis, scripted and the gate's edge under the
+shield:
+
+| axis (worst level) | scripted | gate + shield - scripted + shield |
+|---|---|---|
+| none | 0.787 | +0.040 [+0.013, +0.073]* |
+| identity swap, onset 0.03 per tick, 20-tick bursts | 0.620 | +0.013 [-0.020, +0.047] |
+| marker occlusion, 0.20 per tick, 5-tick bursts | 0.213 | +0.027 [+0.007, +0.053]* |
+| velocity noise, 0.25 m/s | 0.760 | +0.067 [+0.027, +0.107]* |
+| position noise, 0.40 m | 0.500 | +0.073 [+0.027, +0.127]* |
+| motor time constant, 80 ms | 0.367 | +0.013 [+0.000, +0.033] |
+| uplink packet loss, 0.30 | 0.587 | +0.047 [+0.007, +0.093]* |
+| battery sag, 0.6 of thrust per minute | 0.760 | +0.067 [+0.027, +0.107]* |
+| state latency, 80 ms | 0.107 | +0.007 [+0.000, +0.020] |
+
+**Swaps are a mild axis.** An identity swap keeps every position exact and
+exchanges two labels, so nothing downstream can detect it. At a swap onset
+rate 60 times `vicon_lab`'s and 7.5 times `vicon_busy`'s, `assault` scripted
+loses 0.17, and the gate's edge (+0.040 at the two lower rates) shrinks to
++0.02 without becoming negative. The earlier claim that the gate's edge is
+"robust to label swaps (+0.18 at 10x)" was again the old law's gap; the
+current statement is that swaps cost every arm a little and do not reorder
+them. Velocity noise up to 0.25 m/s costs the scripted law almost nothing
+(0.787 to 0.760), even though every gate predicate is velocity-derived. Under
+the shield the gate keeps a significant +0.05 to +0.08 across both noise
+axes and moderate occlusion. Motor lag behaves like a smaller latency: 40 ms
+costs 0.12, 80 ms costs 0.42, and the shield turns positive (+0.067) at 80 ms.
+Packet loss up to 30% costs 0.20 and battery sag almost nothing (0.03 at 0.6
+of thrust per minute, since an `assault` episode lasts seconds).
+
+The gate's residual edge therefore survives every non-latency degradation
+measured here, and disappears on the latency axes alone.
+
+### 8.6 One stale command frame
+
+Uplink latency is applied as whole frames (a radio delivers frames, not
+interpolations), so at the 60 ms `assault` control period 10 and 20 ms round
+to zero ticks and 40 and 80 ms to one. One tick of command delay takes
+`assault` scripted from 0.787 to 0.273, the shield arms to 0.387 / 0.407, and
+removes the gate's edge. These four numbers equal the 60 ms *state*-latency
+row exactly, which is the expected consistency check: for a controller
+without internal state, acting one tick late on fresh state and acting now on
+one-tick-old state send the same command at the same time. Under the old law
+the same step was 0.71 to 0.07. At this control period, a radio that drops
+one frame of timeliness costs more than half the win rate, which argues for a
+faster control loop more than for any controller change.
+
+### 8.7 The control period, and a missile-fuel artefact
+
+![control period](figures/robust_control_rate.png)
+
+The control-rate axis varies the control period with the wall-clock episode
+length, and capture checking at substep rate, held fixed. Running it on the
+current semantics exposed an artefact in the axis itself: a missile's burn is
+counted in control steps (`burn_steps = 120`), and only `max_steps` was
+rescaled. At a 20 ms period the missile burned for 2.4 s instead of 7.2 s,
+ran out short of the asset, and every arm, the policy alone included, "won"
+1.00 with zero breaches. The earlier reading that `assault` "gets easy for
+everyone at fast control" was this artefact. The axis now rescales the burn
+too (`test_control_rate_holds_missile_burn_time_constant`):
+
+| control period | `assault` scripted | `assault` gate - scripted | `tag` scripted | `tag` policy alone | `tag` gate |
+|---|---|---|---|---|---|
+| 20 ms | 0.833 | +0.040 [+0.000, +0.080] | 0.893 | 0.400 | 0.427 |
+| 40 ms | 0.813 | +0.040 [+0.007, +0.080]* | 0.840 | 0.327 | 0.393 |
+| 60 ms | 0.787 | +0.027 [+0.000, +0.060] | 0.700 | 0.273 | 0.313 |
+| 100 ms | 0.733 | +0.027 [+0.000, +0.060] | 0.567 | 0.253 | 0.200 |
+| 160 ms | 0.733 | +0.007 [+0.000, +0.020] | 0.407 | 0.207 | 0.160 |
+
+With the burn held, `assault` improves only slightly with a faster loop
+(0.733 to 0.833 from 160 to 20 ms) and the gate's edge holds at +0.03 to
++0.04. `tag` is the opposite: scripted rises from 0.407 to 0.893 as the
+period falls from 160 to 20 ms, and its shipped 100 ms period sits above its
+own 70 ms latency budget. Part of tag's calibrated "scripted catches 40-50%"
+baseline is therefore a property of a slow control clock. The policy alone
+also improves with a faster clock (0.207 to 0.400), which corrects the
+earlier note that it stayed flat near 0.28; its rise is about 0.19 against
+scripted's 0.49. The policies here run at periods they were not trained at,
+so the policy and gated columns on this axis are a lower bound for a policy
+trained at each rate.
+
+### 8.8 Training under the link
+
+The obvious objection to §8.2-8.4 is that the policy never saw the link in
+training. The sphere-law defender policies (§7.3) were fine-tuned for six
+DAgger iterations with `vicon_lab` active (`dagger.py --link vicon_lab`): the
+learner sees the delayed, noisy estimate and flies through the uplink, and
+the scripted expert labels every state from truth. Each fine-tuned policy was
+then compared, paired, with its perfect-link parent on the same latency
+levels and presets (`scripts/analysis/link_trained_sweep.py`, `assault`):
+
+| link | policy alone, parent / link-trained | link-trained - parent, alone | gated, parent / link-trained | link-trained - parent, gated |
+|---|---|---|---|---|
+| perfect | 0.160 / 0.167 | +0.007 [-0.067, +0.080] | 0.800 / 0.793 | -0.007 [-0.033, +0.013] |
+| vicon_lab | 0.160 / 0.160 | 0.000 [-0.073, +0.073] | 0.733 / 0.733 | 0.000 [-0.027, +0.027] |
+| vicon_busy | 0.140 / 0.140 | 0.000 [-0.067, +0.067] | 0.547 / 0.547 | 0.000 [-0.020, +0.020] |
+| 20 ms latency | 0.160 / 0.153 | -0.007 [-0.080, +0.067] | 0.687 / 0.693 | +0.007 [-0.013, +0.027] |
+| 40 ms latency | 0.147 / 0.140 | -0.007 [-0.080, +0.060] | 0.493 / 0.500 | +0.007 [0.000, +0.020] |
+| 60 ms latency | 0.133 / 0.140 | +0.007 [-0.060, +0.073] | 0.273 / 0.273 | 0.000 |
+
+Nothing moves. The learned side does not close the robustness gap when it
+experiences the link in training, at least for a DAgger student of a law that
+itself fails under latency: the student imitates a teacher whose labels are
+computed from truth, and from 30 ms on the gate's handovers land on
+engagements that no command can save (§8.4). A teacher that is itself
+latency-aware, or a policy trained on the objective rather than imitation,
+would be the next test; neither is in reach of a fine-tune.
+
+### 8.9 What to fly
+
+- **Scripted law + shield** is the recipe for hardware in both games. In
+  `assault` the shield costs 0.03-0.06 on a clean link and is worth +0.11 to
+  +0.21 from 60 ms of latency or one stale command frame. In `tag` it costs
+  nothing measurable on a clean link and is worth +0.15 on `vicon_busy`.
+- **Add the defender gate on a clean volume.** Under the shield it adds
+  +0.040 / +0.047 on `perfect` / `vicon_lab` and +0.05 to +0.08 under noise
+  and moderate occlusion, and its paired delta is never negative on any
+  `assault` axis measured. It stops
+  mattering from about 30 ms of state latency. (§7.3 shows that most of its
+  value in `assault` could be moved into the scripted law itself.)
+- **Do not fly the tag gate.** It loses to scripted at every rung.
+- **Latency is the number to buy down.** For `assault` at 60 ms control, 20 ms
+  of state latency costs 0.11 and one stale command frame costs 0.51. A
+  faster control loop and a short capture-to-command chain are worth more
+  than any controller change measured here.
+
+## 9. Limitations & next
 
 - **Beating the baseline in tag.** The best learned configuration (DAgger + gate
   + shield) reaches 0.42 (0.46 with the old, leakier fence), near scripted's
@@ -613,7 +897,8 @@ vehicle that distinction matters: a shield you cannot actuate is not a shield.
   a harder opponent — but the defence win rates should still be read as "against
   this raid doctrine", not as absolute. Genuine co-training, where both sides
   adapt to each other's gate, is the open experiment.
-- **No error bars, and a known selection bias.** Every table is a point estimate.
+- **No error bars in the headline tables, and a known selection bias.** The
+  tables in §3-§6 are point estimates (§7.2, §7.3 and §8 carry intervals).
   The ±1σ band at 150–200 episodes is a few points, so differences of that size
   (e.g. `assault` 0.80 vs 0.81 shielded) are not findings; only the large gaps
   are. Worse, checkpoints are chosen best-of-N on a small battery, which is
