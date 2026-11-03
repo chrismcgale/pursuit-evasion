@@ -74,6 +74,11 @@ uv run pe-parity --game assault --controller bt_safe > /tmp/py.txt        # repo
 (cd cpp && ./build/pe_run --parity --game assault --controller bt_safe) > /tmp/cpp.txt
 uv run python scripts/check_parity.py /tmp/py.txt /tmp/cpp.txt
 
+# 1b. the same under a degraded link (Python writes the corruption tape)
+uv run pe-parity --game tag --controller bt_safe --link vicon_lab --tape /tmp/tape.txt
+(cd cpp && ./build/pe_run --parity --game tag --controller bt_safe --link vicon_lab --link-tape /tmp/tape.txt)
+bash scripts/ci_parity.sh        # every check CI should run, in one go
+
 # 2. aggregate parity per game — catches gate / ONNX / shield drift
 uv run python -m pursuit_evasion.eval.dump_starts                 # writes s_<game>.txt
 ./build/pe_run --game assault --controller bt_safe --starts-file /tmp/s_assault.txt
@@ -81,6 +86,12 @@ uv run python -m pursuit_evasion.eval.dump_starts                 # writes s_<ga
 Compare against the same cell from `pe-games` (or, for the policy arms, a Python
 run through `eval.parity.OnnxRLController` — SB3/torch differs from ORT at ~1e-6).
 All three games match *exactly*, including violation counts and RL ticks.
+Under a link, `python -m pursuit_evasion.eval.dump_starts --link vicon_lab`
+also writes `t_<game>_vicon_lab.txt` for `pe_run --link vicon_lab --link-tape`
+(episode e is tape stream e+1: `LinkedController` resets once in its
+constructor), and `scripts/link_aggregate_parity.py` does the whole
+comparison episode by episode. Without `--link-tape`, `pe_run --link` uses a
+native generator: same distributions, not paired with Python.
 
 ## Debug / common errors
 
@@ -171,6 +182,14 @@ XML + a gate tree.
   by the shield. State that plainly in any V&V discussion.
 
 ## Changelog / decisions (newest first)
+
+- **2026-11-03** **The link layer runs in C++ too (REVIEW #11, #14).**
+  `pe/link.hpp` mirrors `env/link.py`; its random draws come from a tape that
+  Python writes, because every draw is a function of (seed, stream, tick)
+  only. That made a bit-exact port of numpy's generators unnecessary. 18/18
+  fixed-start combinations and episode-level aggregates exact. Gotcha found on
+  the way: a script that imports numpy before `pursuit_evasion` silently loses
+  the OpenBLAS pin and flipped 1/40 tag episodes; the package now warns.
 
 - **2026-11-03** **Own-team separation in the shield, default off.**
   `SafetyConfig.separation_m` (both runtimes, `--separation` on `pe-parity` /

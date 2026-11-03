@@ -208,10 +208,23 @@ Core claims, each measured not assumed:
     before this fix are not on the laptop/CI semantics.
 
 **Architecture**
-11. **The link layer is Python-only.** The C++ runtime cannot run degraded
-    evals. Parity is unaffected (PERFECT bypasses bit-identically) but the
-    "production runtime" story now lags the research one. Mirroring `link.py`
-    + seeded-corruption parity is ROADMAP #10.
+11. ~~The link layer is Python-only~~ **Resolved 2026-11-03.** `pe/link.hpp`
+    mirrors `env/link.py`; `pe_run --link <preset>` runs degraded evals on the
+    production stack. The random half comes from a corruption *tape* that
+    Python writes (`link.py:write_tape`, `dump_starts --link`, `pe-parity
+    --tape`) and C++ replays (`--link-tape`), rather than a C++ port of
+    numpy's PCG64 + ziggurat normal + `Generator.choice`: every draw depends
+    only on (seed, stream, tick), never on state or commands, so a tape is
+    exact by construction and Python stays the one source of the stochastic
+    model (the `--starts-file` precedent). A native `mt19937_64` source runs
+    standalone C++ evals that are statistically equivalent but not paired.
+    Exact: fixed-start parity for 3 presets x 3 games x {scripted, bt_safe}
+    (18/18); episode-level aggregate (`scripts/link_aggregate_parity.py`,
+    n=40, 0 flips, identical violation counts) for assault and escort under
+    `vicon_lab` and tag under perfect / `vicon_lab` / `field_degraded`. The
+    `link.py` refactor (draws moved into `CorruptionStream`) was verified
+    bit-identical on 60 golden episodes before anything else changed.
+    `scripts/ci_parity.sh` runs `vicon_lab` for every game x stack.
 12. **Own-team separation: built 2026-11-03, default off; separation from
     opponents is open (Chris's decision).** `SafetyConfig.separation_m` keeps
     live teammates apart, brake-aware like the fence (acts on
@@ -281,8 +294,10 @@ Core claims, each measured not assumed:
     untouched — but the burden of proof is now the k-sweep table, and the
     measured story ("the shield, not the gate, carries degradation") may simply
     be the answer.
-14. `LinkedController` history buffer caps at 64 views; fine for current
-    latencies, silently wrong if anyone sweeps >3.8 s.
+14. ~~`LinkedController` history buffer caps at 64 views~~ **Fixed
+    2026-11-03** in both runtimes: the view history is sized
+    `ceil(latency / dt) + 1`, the command history `round(cmd latency / dt) + 1`
+    (tested at 80 ticks of latency on both sides).
 15. Explorer truth-vs-belief renders for the pursuer-slot side only (matches
     what's traced).
 

@@ -47,8 +47,9 @@ and what is broken.*
 
 9. Symmetric degradation option (opponent flies the same link) + own-team
    swaps (REVIEW #7, #8).
-10. **Mirror `link.py` in the C++ runtime** with seeded-corruption parity, so
-    degraded evals run on the production stack too (REVIEW #11).
+10. ~~Mirror `link.py` in the C++ runtime~~ **Done 2026-11-03** via a
+    Python-written corruption tape; exact for every preset x game x stack
+    (REVIEW #11). Degraded evals now run on the production stack.
 11. **Train under the link**: retrain/fine-tune the DAgger policies with
     `vicon_lab` corruption active (domain randomisation). Open question with
     real stakes: does the learned side close the robustness gap when it is
